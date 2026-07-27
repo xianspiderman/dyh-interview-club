@@ -1,0 +1,51 @@
+server:
+  port: ${GATEWAY_SERVER_PORT:5000}
+
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: oss
+          uri: lb://dyh-club-oss-dev
+          predicates:
+            - Path=/oss/**
+          filters:
+            - StripPrefix=1
+        - id: auth
+          uri: lb://dyh-club-auth-dev
+          predicates:
+            - Path=/auth/**
+          filters:
+            - StripPrefix=1
+        - id: subject
+          uri: lb://dyh-club-subject-dev
+          predicates:
+            - Path=/subject/**
+        - id: practice
+          uri: lb://dyh-club-practice-dev
+          predicates:
+            - Path=/practice/**
+        - id: circle
+          uri: lb://dyh-club-circle-dev
+          predicates:
+            - Path=/circle/**
+        - id: interview
+          uri: lb://dyh-club-interview-dev
+          predicates:
+            - Path=/interview/**
+  redis:
+    database: ${REDIS_DATABASE:1}
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    timeout: 2s
+
+sa-token:
+  token-name: satoken
+  timeout: 2592000
+  active-timeout: -1
+  is-concurrent: true
+  is-share: true
+  token-style: random-32
+  is-log: true
+  token-prefix: dyh

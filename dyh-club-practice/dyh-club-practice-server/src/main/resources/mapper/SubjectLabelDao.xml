@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.dyh.club.practice.server.dao.SubjectLabelDao">
+
+
+    <!--查询单个-->
+    <select id="queryById" resultType="com.dyh.club.practice.server.entity.po.SubjectLabelPO">
+        select id,
+               label_name  as labelName,
+               category_id as categoryId,
+               sort_num    as sortNum,
+               created_by,
+               created_time,
+               update_by,
+               is_deleted,
+               update_time
+        from subject_label
+        where id = #{id}
+    </select>
+
+    <select id="getLabelNameByIds" resultType="java.lang.String">
+        select label_name as labelName from subject_label where id in
+        <foreach collection="labelIds" item="item" open="(" close=")" separator=",">
+            #{item}
+        </foreach>
+    </select>
+
+
+</mapper>
+

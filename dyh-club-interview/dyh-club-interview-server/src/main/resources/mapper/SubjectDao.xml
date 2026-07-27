@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.dyh.club.interview.server.dao.SubjectDao">
+
+    <select id="listAllLabel" resultType="com.dyh.club.interview.server.entity.po.SubjectLabel">
+        select *
+        from subject_label
+        where is_deleted = 0
+    </select>
+    <select id="listAllCategory" resultType="com.dyh.club.interview.server.entity.po.SubjectCategory">
+        select *
+        from subject_category
+        where is_deleted = 0
+    </select>
+
+    <select id="listSubjectByLabelIds" resultType="com.dyh.club.interview.server.entity.po.SubjectInfo">
+        SELECT e.category_name,
+        d.label_name,
+        a.subject_name,
+        c.subject_answer
+        FROM subject_info a,
+        subject_mapping b,
+        subject_brief c,
+        subject_label d,
+        subject_category e
+        WHERE a.id = c.subject_id
+        AND a.id = b.subject_id
+        AND b.label_id = d.id
+        AND b.category_id = e.id
+        AND a.subject_type = 4
+        AND a.is_deleted = 0
+        AND b.label_id in
+        <foreach collection="ids" index="index" item="item" open="(" separator="," close=")">
+            #{item}
+        </foreach>
+        limit 100
+    </select>
+
+</mapper>
+

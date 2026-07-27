@@ -1,0 +1,48 @@
+server:
+  port: ${SUBJECT_SERVER_PORT:3010}
+
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:dyh_club}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf8&useSSL=${MYSQL_USE_SSL:false}&allowPublicKeyRetrieval=${MYSQL_ALLOW_PUBLIC_KEY_RETRIEVAL:true}
+    username: ${MYSQL_USERNAME:dyh_club}
+    password: ${MYSQL_PASSWORD:}
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      initial-size: ${DB_POOL_INITIAL_SIZE:2}
+      min-idle: ${DB_POOL_MIN_IDLE:2}
+      max-active: ${DB_POOL_MAX_ACTIVE:20}
+      max-wait: 60000
+  redis:
+    database: ${REDIS_DATABASE:0}
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    timeout: 2s
+
+logging:
+  config: classpath:log4j2-spring.xml
+
+es:
+  cluster:
+    esConfigs[0]:
+      name: ${ELASTICSEARCH_CLUSTER_NAME:elasticsearch}
+      nodes: ${ELASTICSEARCH_NODES:localhost:9200}
+
+xxl:
+  job:
+    admin:
+      addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://localhost:8080/xxl-job-admin}
+    accessToken: ${XXL_JOB_ACCESS_TOKEN:}
+    executor:
+      appname: dyh-club-subject
+      address: ${XXL_JOB_EXECUTOR_ADDRESS:}
+      ip: ${XXL_JOB_EXECUTOR_IP:}
+      port: ${XXL_JOB_EXECUTOR_PORT:9999}
+      logpath: ${XXL_JOB_LOG_PATH:./logs/xxl-job}
+      logretentiondays: 30
+
+rocketmq:
+  name-server: ${ROCKETMQ_NAME_SERVER:localhost:9876}
+  producer:
+    group: dyh-club-subject

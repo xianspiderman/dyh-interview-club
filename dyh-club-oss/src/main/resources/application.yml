@@ -1,0 +1,7 @@
+server:
+  port: ${OSS_SERVER_PORT:4000}
+
+minio:
+  url: ${MINIO_URL:http://localhost:9000}
+  accessKey: ${MINIO_ACCESS_KEY:}
+  secretKey: ${MINIO_SECRET_KEY:}

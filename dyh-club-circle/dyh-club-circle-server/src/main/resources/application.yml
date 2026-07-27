@@ -1,0 +1,24 @@
+server:
+  port: ${CIRCLE_SERVER_PORT:3014}
+
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:dyh_club}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf8&useSSL=${MYSQL_USE_SSL:false}&allowPublicKeyRetrieval=${MYSQL_ALLOW_PUBLIC_KEY_RETRIEVAL:true}
+    username: ${MYSQL_USERNAME:dyh_club}
+    password: ${MYSQL_PASSWORD:}
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      initial-size: ${DB_POOL_INITIAL_SIZE:2}
+      min-idle: ${DB_POOL_MIN_IDLE:2}
+      max-active: ${DB_POOL_MAX_ACTIVE:20}
+      max-wait: 60000
+  redis:
+    database: ${REDIS_DATABASE:1}
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    timeout: 2s
+
+logging:
+  config: classpath:log4j2-spring.xml

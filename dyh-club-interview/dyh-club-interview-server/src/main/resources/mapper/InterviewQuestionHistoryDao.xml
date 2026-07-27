@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.dyh.club.interview.server.dao.InterviewQuestionHistoryDao">
+
+    <resultMap type="com.dyh.club.interview.server.entity.po.InterviewQuestionHistory"
+               id="InterviewQuestionHistoryMap">
+        <result property="id" column="id" jdbcType="INTEGER"/>
+        <result property="interviewId" column="interview_id" jdbcType="INTEGER"/>
+        <result property="score" column="score" jdbcType="DOUBLE"/>
+        <result property="keyWords" column="key_words" jdbcType="VARCHAR"/>
+        <result property="question" column="question" jdbcType="VARCHAR"/>
+        <result property="answer" column="answer" jdbcType="VARCHAR"/>
+        <result property="userAnswer" column="user_answer" jdbcType="VARCHAR"/>
+        <result property="createdBy" column="created_by" jdbcType="VARCHAR"/>
+        <result property="createdTime" column="created_time" jdbcType="TIMESTAMP"/>
+        <result property="updateBy" column="update_by" jdbcType="VARCHAR"/>
+        <result property="updateTime" column="update_time" jdbcType="TIMESTAMP"/>
+        <result property="isDeleted" column="is_deleted" jdbcType="INTEGER"/>
+    </resultMap>
+
+    <!--查询单个-->
+    <select id="queryById" resultMap="InterviewQuestionHistoryMap">
+        select id,
+               interview_id,
+               score,
+               key_words,
+               question,
+               answer,
+               user_answer,
+               created_by,
+               created_time,
+               update_by,
+               update_time,
+               is_deleted
+        from interview_question_history
+        where id = #{id}
+    </select>
+
+    <!--查询指定行数据-->
+    <select id="queryAllByLimit" resultMap="InterviewQuestionHistoryMap">
+        select
+        id, interview_id, score, key_words, question, answer, user_answer, created_by, created_time, update_by,
+        update_time, is_deleted
+        from interview_question_history
+        <where>
+            <if test="id != null">
+                and id = #{id}
+            </if>
+            <if test="interviewId != null">
+                and interview_id = #{interviewId}
+            </if>
+            <if test="score != null and score != ''">
+                and score = #{score}
+            </if>
+            <if test="keyWords != null and keyWords != ''">
+                and key_words = #{keyWords}
+            </if>
+            <if test="question != null and question != ''">
+                and question = #{question}
+            </if>
+            <if test="answer != null and answer != ''">
+                and answer = #{answer}
+            </if>
+            <if test="userAnswer != null and userAnswer != ''">
+                and user_answer = #{userAnswer}
+            </if>
+            <if test="createdBy != null and createdBy != ''">
+                and created_by = #{createdBy}
+            </if>
+            <if test="createdTime != null">
+                and created_time = #{createdTime}
+            </if>
+            <if test="updateBy != null and updateBy != ''">
+                and update_by = #{updateBy}
+            </if>
+            <if test="updateTime != null">
+                and update_time = #{updateTime}
+            </if>
+            <if test="isDeleted != null">
+                and is_deleted = #{isDeleted}
+            </if>
+        </where>
+        limit #{pageable.offset}, #{pageable.pageSize}
+    </select>
+
+    <!--统计总行数-->
+    <select id="count" resultType="java.lang.Long">
+        select count(1)
+        from interview_question_history
+        <where>
+            <if test="id != null">
+                and id = #{id}
+            </if>
+            <if test="interviewId != null">
+                and interview_id = #{interviewId}
+            </if>
+            <if test="score != null and score != ''">
+                and score = #{score}
+            </if>
+            <if test="keyWords != null and keyWords != ''">
+                and key_words = #{keyWords}
+            </if>
+            <if test="question != null and question != ''">
+                and question = #{question}
+            </if>
+            <if test="answer != null and answer != ''">
+                and answer = #{answer}
+            </if>
+            <if test="userAnswer != null and userAnswer != ''">
+                and user_answer = #{userAnswer}
+            </if>
+            <if test="createdBy != null and createdBy != ''">
+                and created_by = #{createdBy}
+            </if>
+            <if test="createdTime != null">
+                and created_time = #{createdTime}
+            </if>
+            <if test="updateBy != null and updateBy != ''">
+                and update_by = #{updateBy}
+            </if>
+            <if test="updateTime != null">
+                and update_time = #{updateTime}
+            </if>
+            <if test="isDeleted != null">
+                and is_deleted = #{isDeleted}
+            </if>
+        </where>
+    </select>
+
+    <!--新增所有列-->
+    <insert id="insert" keyProperty="id" useGeneratedKeys="true">
+        insert into interview_question_history(interview_id, score, key_words, question, answer, user_answer,
+                                               created_by,
+                                               created_time, update_by, update_time, is_deleted)
+        values (#{interviewId}, #{score}, #{keyWords}, #{question}, #{answer}, #{userAnswer}, #{createdBy},
+                #{createdTime}, #{updateBy}, #{updateTime}, #{isDeleted})
+    </insert>
+
+    <insert id="insertBatch" keyProperty="id" useGeneratedKeys="true">
+        insert into interview_question_history(interview_id, score, key_words, question, answer, user_answer,
+        created_by,
+        created_time, update_by, update_time, is_deleted)
+        values
+        <foreach collection="entities" item="entity" separator=",">
+            (#{entity.interviewId}, #{entity.score}, #{entity.keyWords}, #{entity.question}, #{entity.answer},
+            #{entity.userAnswer}, #{entity.createdBy}, #{entity.createdTime}, #{entity.updateBy}, #{entity.updateTime},
+            #{entity.isDeleted})
+        </foreach>
+    </insert>
+
+    <insert id="insertOrUpdateBatch" keyProperty="id" useGeneratedKeys="true">
+        insert into interview_question_history(interview_id, score, key_words, question, answer, user_answer,
+        created_by,
+        created_time, update_by, update_time, is_deleted)
+        values
+        <foreach collection="entities" item="entity" separator=",">
+            (#{entity.interviewId}, #{entity.score}, #{entity.keyWords}, #{entity.question}, #{entity.answer},
+            #{entity.userAnswer}, #{entity.createdBy}, #{entity.createdTime}, #{entity.updateBy}, #{entity.updateTime},
+            #{entity.isDeleted})
+        </foreach>
+        on duplicate key update
+        interview_id = values(interview_id),
+        score = values(score),
+        key_words = values(key_words),
+        question = values(question),
+        answer = values(answer),
+        user_answer = values(userAnswer),
+        created_by = values(created_by),
+        created_time = values(created_time),
+        update_by = values(update_by),
+        update_time = values(update_time),
+        is_deleted = values(is_deleted)
+    </insert>
+
+    <!--通过主键修改数据-->
+    <update id="update">
+        update interview_question_history
+        <set>
+            <if test="interviewId != null">
+                interview_id = #{interviewId},
+            </if>
+            <if test="score != null and score != ''">
+                score = #{score},
+            </if>
+            <if test="keyWords != null and keyWords != ''">
+                key_words = #{keyWords},
+            </if>
+            <if test="question != null and question != ''">
+                question = #{question},
+            </if>
+            <if test="answer != null and answer != ''">
+                answer = #{answer},
+            </if>
+            <if test="userAnswer != null and userAnswer != ''">
+                user_answer = #{userAnswer},
+            </if>
+            <if test="createdBy != null and createdBy != ''">
+                created_by = #{createdBy},
+            </if>
+            <if test="createdTime != null">
+                created_time = #{createdTime},
+            </if>
+            <if test="updateBy != null and updateBy != ''">
+                update_by = #{updateBy},
+            </if>
+            <if test="updateTime != null">
+                update_time = #{updateTime},
+            </if>
+            <if test="isDeleted != null">
+                is_deleted = #{isDeleted},
+            </if>
+        </set>
+        where id = #{id}
+    </update>
+
+    <!--通过主键删除-->
+    <delete id="deleteById">
+        delete
+        from interview_question_history
+        where id = #{id}
+    </delete>
+
+</mapper>
+
