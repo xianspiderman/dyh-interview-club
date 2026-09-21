@@ -21,7 +21,7 @@ public class SubjectLikedConsumer implements RocketMQListener<String> {
 
     @Override
     public void onMessage(String s) {
-        System.out.println("接受点赞mq,消息为" + s);
+        log.debug("收到题目点赞持久化消息");
         SubjectLikedBO subjectLikedBO = JSON.parseObject(s, SubjectLikedBO.class);
         subjectLikedDomainService.syncLikedByMsg(subjectLikedBO);
     }

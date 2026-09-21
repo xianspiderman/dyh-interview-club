@@ -7,17 +7,21 @@ import com.dyh.club.gateway.entity.Result;
 import org.springframework.boot.web.reactive.error.ErrorWebExceptionHandler;
 import org.springframework.core.io.buffer.DataBufferFactory;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
+import lombok.extern.slf4j.Slf4j;
+import java.nio.charset.StandardCharsets;
 
 /**
  * 网关全局异常处理
  *
  */
 @Component
+@Slf4j
 public class GatewayExceptionHandler implements ErrorWebExceptionHandler {
 
     private ObjectMapper objectMapper = new ObjectMapper();
@@ -36,21 +40,22 @@ public class GatewayExceptionHandler implements ErrorWebExceptionHandler {
         if (throwable instanceof SaTokenException) {//如果是SaTokenException抛出的错误
             code = 401;
             message = "用户无权限";
-            throwable.printStackTrace();
         } else {
             code = 500;
             message = "系统繁忙";
-            throwable.printStackTrace();
+            log.error("网关请求处理失败，path={}",request.getURI().getPath(),throwable);
         }
         Result result = Result.fail(code, message);
         response.getHeaders().setContentType(MediaType.APPLICATION_JSON);//告诉浏览器：“我接下来给你发的是 JSON”（setContentType）。
+        response.setStatusCode(code==401?HttpStatus.UNAUTHORIZED:HttpStatus.INTERNAL_SERVER_ERROR);
         return response.writeWith(Mono.fromSupplier(() -> {
             DataBufferFactory dataBufferFactory = response.bufferFactory();
             byte[] bytes = null;
             try {
                 bytes = objectMapper.writeValueAsBytes(result);
             } catch (JsonProcessingException e) {
-                e.printStackTrace();
+                log.error("网关异常响应序列化失败",e);
+                bytes = "{\"code\":500,\"message\":\"系统繁忙\"}".getBytes(StandardCharsets.UTF_8);
             }
             return dataBufferFactory.wrap(bytes);
         }));

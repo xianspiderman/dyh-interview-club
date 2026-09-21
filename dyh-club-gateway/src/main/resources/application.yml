@@ -5,6 +5,10 @@ spring:
   cloud:
     gateway:
       routes:
+        - id: club-platform
+          uri: ${CLUB_PLATFORM_URI:http://localhost:3020}
+          predicates:
+            - Path=/api/**,/actuator/**
         - id: oss
           uri: lb://dyh-club-oss-dev
           predicates:
@@ -46,6 +50,5 @@ sa-token:
   active-timeout: -1
   is-concurrent: true
   is-share: true
-  token-style: random-32
-  is-log: true
-  token-prefix: dyh
+  token-style: uuid
+  is-log: false

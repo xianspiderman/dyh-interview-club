@@ -134,7 +134,7 @@ public class SubjectCategoryDomainServiceImpl implements SubjectCategoryDomainSe
                     map.putAll(resultMap);
                 }
             } catch (Exception e) {
-                e.printStackTrace();
+                log.error("分类标签聚合子任务失败",e);
             }
         });
         categoryBOList.forEach(categoryBO -> {

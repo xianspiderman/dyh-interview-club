@@ -1,0 +1,7 @@
+spring:
+  datasource:
+    password: ${MYSQL_PASSWORD:club-local-only}
+
+club:
+  demo:
+    enabled: ${CLUB_DEMO_ENABLED:true}

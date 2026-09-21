@@ -21,6 +21,8 @@
         <module>dyh-club-oss</module>
         <module>dyh-club-wx</module>
         <module>dyh-club-gateway</module>
+        <module>dyh-club-lock-spring-boot-starter</module>
+        <module>dyh-club-platform</module>
     </modules>
 
     <properties>

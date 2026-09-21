@@ -1,0 +1,8 @@
+{
+  "properties": [
+    {"name":"club.lock.enabled","type":"java.lang.Boolean","defaultValue":true,"description":"是否启用 Redis 分布式锁自动配置。"},
+    {"name":"club.lock.key-prefix","type":"java.lang.String","defaultValue":"club:lock:","description":"锁 Key 公共前缀。"},
+    {"name":"club.lock.wait-millis","type":"java.lang.Long","defaultValue":200,"description":"默认等待加锁毫秒数。"},
+    {"name":"club.lock.lease-millis","type":"java.lang.Long","defaultValue":5000,"description":"默认锁租期毫秒数。"}
+  ]
+}
