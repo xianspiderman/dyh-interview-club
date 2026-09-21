@@ -1,3 +1,14 @@
+x-service-env: &service-env
+  MYSQL_HOST: mysql
+  MYSQL_DATABASE: ${MYSQL_DATABASE:-dyh_club}
+  MYSQL_USERNAME: ${MYSQL_USERNAME:-dyh_club}
+  MYSQL_PASSWORD: ${MYSQL_PASSWORD:-club-local-only}
+  CLUB_DEMO_ENABLED: "true"
+  REDIS_HOST: redis
+  CLUB_INTERNAL_TOKEN: ${CLUB_INTERNAL_TOKEN:-club-local-internal-only}
+  NACOS_CONFIG_ENABLED: ${NACOS_CONFIG_ENABLED:-false}
+  NACOS_DISCOVERY_ENABLED: ${NACOS_DISCOVERY_ENABLED:-false}
+  NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:-nacos:8848}
 name: dyh-interview-club
 services:
   mysql:
@@ -24,17 +35,23 @@ services:
     command: ["redis-server", "--appendonly", "yes"]
     volumes: ["dyh-club-redis-data:/data"]
     healthcheck: {test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 30}
-  platform:
-    build: {context: ., dockerfile: dyh-club-platform/Dockerfile}
-    container_name: dyh-club-platform
+  auth-service:
+    build: {context: ., dockerfile: deploy/services/Dockerfile, args: {SERVICE: club-auth-service}}
+    container_name: dyh-club-auth-service
     environment:
-      MYSQL_HOST: mysql
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-dyh_club}
-      MYSQL_USERNAME: ${MYSQL_USERNAME:-dyh_club}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-club-local-only}
-      SPRING_PROFILES_ACTIVE: demo
-      CLUB_DEMO_ENABLED: "true"
-      REDIS_HOST: redis
+      <<: *service-env
+      AUTH_SERVICE_PORT: 3021
+    ports: ["3021:3021"]
+    depends_on:
+      mysql: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck: {test: ["CMD-SHELL", "wget -qO- http://localhost:3021/actuator/health | grep -q UP"], interval: 10s, timeout: 5s, retries: 30}
+  subject-service:
+    build: {context: ., dockerfile: deploy/services/Dockerfile, args: {SERVICE: club-subject-service}}
+    container_name: dyh-club-subject-service
+    environment:
+      <<: *service-env
+      SUBJECT_SERVICE_PORT: 3022
       ROCKETMQ_ENABLED: ${ROCKETMQ_ENABLED:-false}
       ROCKETMQ_NAME_SERVER: namesrv:9876
       ELASTICSEARCH_ENABLED: ${ELASTICSEARCH_ENABLED:-false}
@@ -45,23 +62,52 @@ services:
       XXL_JOB_ADMIN_ADDRESSES: ${XXL_JOB_ADMIN_ADDRESSES:-http://host.docker.internal:8080/xxl-job-admin}
       XXL_JOB_ACCESS_TOKEN: ${XXL_JOB_ACCESS_TOKEN:-}
       XXL_JOB_EXECUTOR_PORT: 9999
-    ports: ["3020:3020", "${XXL_JOB_EXECUTOR_PORT:-9999}:9999"]
+    ports: ["3022:3022", "${XXL_JOB_EXECUTOR_PORT:-9999}:9999"]
     depends_on:
       mysql: {condition: service_healthy}
       redis: {condition: service_healthy}
-    healthcheck: {test: ["CMD-SHELL", "wget -qO- http://localhost:3020/actuator/health | grep -q UP"], interval: 10s, timeout: 5s, retries: 30}
+      auth-service: {condition: service_healthy}
+    healthcheck: {test: ["CMD-SHELL", "wget -qO- http://localhost:3022/actuator/health | grep -q UP"], interval: 10s, timeout: 5s, retries: 30}
+  practice-service:
+    build: {context: ., dockerfile: deploy/services/Dockerfile, args: {SERVICE: club-practice-service}}
+    container_name: dyh-club-practice-service
+    environment:
+      <<: *service-env
+      PRACTICE_SERVICE_PORT: 3023
+      SUBJECT_SERVICE_URL: http://subject-service:3022
+    ports: ["3023:3023"]
+    depends_on:
+      subject-service: {condition: service_healthy}
+    healthcheck: {test: ["CMD-SHELL", "wget -qO- http://localhost:3023/actuator/health | grep -q UP"], interval: 10s, timeout: 5s, retries: 30}
+  circle-service:
+    build: {context: ., dockerfile: deploy/services/Dockerfile, args: {SERVICE: club-circle-service}}
+    container_name: dyh-club-circle-service
+    environment:
+      <<: *service-env
+      CIRCLE_SERVICE_PORT: 3024
+    ports: ["3024:3024"]
+    depends_on:
+      auth-service: {condition: service_healthy}
+    healthcheck: {test: ["CMD-SHELL", "wget -qO- http://localhost:3024/actuator/health | grep -q UP"], interval: 10s, timeout: 5s, retries: 30}
   gateway:
     build: {context: ., dockerfile: dyh-club-gateway/Dockerfile}
     container_name: dyh-club-gateway
     environment:
-      CLUB_PLATFORM_URI: http://platform:3020
+      CLUB_AUTH_URI: ${CLUB_AUTH_URI:-http://auth-service:3021}
+      CLUB_SUBJECT_URI: ${CLUB_SUBJECT_URI:-http://subject-service:3022}
+      CLUB_PRACTICE_URI: ${CLUB_PRACTICE_URI:-http://practice-service:3023}
+      CLUB_CIRCLE_URI: ${CLUB_CIRCLE_URI:-http://circle-service:3024}
       REDIS_HOST: redis
+      CLUB_GATEWAY_TRUST_FORWARDED_FOR: "true"
       NACOS_CONFIG_ENABLED: ${NACOS_CONFIG_ENABLED:-false}
       NACOS_DISCOVERY_ENABLED: ${NACOS_DISCOVERY_ENABLED:-false}
       NACOS_SERVER_ADDR: nacos:8848
     ports: ["5000:5000"]
     depends_on:
-      platform: {condition: service_healthy}
+      auth-service: {condition: service_healthy}
+      subject-service: {condition: service_healthy}
+      practice-service: {condition: service_healthy}
+      circle-service: {condition: service_healthy}
       redis: {condition: service_healthy}
   web:
     build: {context: dyh-club-web}
@@ -86,20 +132,21 @@ services:
     ports: ["10909:10909", "10911:10911"]
     depends_on: [namesrv]
   es01:
-    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.24
+    build: {context: ., dockerfile: deploy/elasticsearch/Dockerfile}
+    image: dyh-club-elasticsearch-ik:7.17.24
     profiles: ["full"]
     environment: {node.name: es01, cluster.name: club-search, discovery.seed_hosts: "es02,es03", cluster.initial_master_nodes: "es01,es02,es03", bootstrap.memory_lock: "true", xpack.security.enabled: "false", ES_JAVA_OPTS: "-Xms512m -Xmx512m"}
     ulimits: {memlock: {soft: -1, hard: -1}}
     volumes: ["dyh-club-es01:/usr/share/elasticsearch/data"]
     ports: ["9200:9200"]
   es02:
-    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.24
+    image: dyh-club-elasticsearch-ik:7.17.24
     profiles: ["full"]
     environment: {node.name: es02, cluster.name: club-search, discovery.seed_hosts: "es01,es03", cluster.initial_master_nodes: "es01,es02,es03", bootstrap.memory_lock: "true", xpack.security.enabled: "false", ES_JAVA_OPTS: "-Xms512m -Xmx512m"}
     ulimits: {memlock: {soft: -1, hard: -1}}
     volumes: ["dyh-club-es02:/usr/share/elasticsearch/data"]
   es03:
-    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.24
+    image: dyh-club-elasticsearch-ik:7.17.24
     profiles: ["full"]
     environment: {node.name: es03, cluster.name: club-search, discovery.seed_hosts: "es01,es02", cluster.initial_master_nodes: "es01,es02,es03", bootstrap.memory_lock: "true", xpack.security.enabled: "false", ES_JAVA_OPTS: "-Xms512m -Xmx512m"}
     ulimits: {memlock: {soft: -1, hard: -1}}

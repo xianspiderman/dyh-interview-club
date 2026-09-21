@@ -1,0 +1,85 @@
+spring:
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:dyh_club}?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=${MYSQL_USE_SSL:false}&allowPublicKeyRetrieval=${MYSQL_ALLOW_PUBLIC_KEY_RETRIEVAL:true}
+    username: ${MYSQL_USERNAME:dyh_club}
+    password: ${MYSQL_PASSWORD:}
+    hikari:
+      maximum-pool-size: 40
+      connection-timeout: 2000
+      data-source-properties:
+        socketTimeout: 2000
+  jdbc.template.query-timeout: 2
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    database: ${REDIS_DATABASE:1}
+    password: ${REDIS_PASSWORD:}
+    timeout: 1000ms
+  cloud:
+    nacos:
+      discovery:
+        enabled: ${NACOS_DISCOVERY_ENABLED:false}
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+      config:
+        enabled: ${NACOS_CONFIG_ENABLED:false}
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        group: ${NACOS_GROUP:DEFAULT_GROUP}
+sa-token:
+  token-name: satoken
+  timeout: 2592000
+  is-concurrent: true
+  is-share: true
+  token-style: uuid
+  is-log: false
+club:
+  internal.token: ${CLUB_INTERNAL_TOKEN:}
+  demo.enabled: ${CLUB_DEMO_ENABLED:false}
+  lock:
+    enabled: true
+    wait-millis: 200
+    lease-millis: 5000
+  cache:
+    local-ttl-seconds: 30
+    redis-ttl-seconds: 600
+    redis-jitter-seconds: 120
+    null-ttl-seconds: 120
+  aggregate:
+    core-pool-size: 16
+    max-pool-size: 32
+    queue-capacity: 200
+    branch-timeout-millis: 300
+    total-timeout-millis: 500
+  rocketmq:
+    enabled: ${ROCKETMQ_ENABLED:false}
+    name-server: ${ROCKETMQ_NAME_SERVER:localhost:9876}
+    topic: subject-liked
+    producer-group: subject-liked-producer
+    consumer-group: subject-liked-consumer
+    send-retries: 2
+    consume-threads: 4
+  xxl-job:
+    enabled: ${XXL_JOB_ENABLED:false}
+    admin-addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://localhost:8080/xxl-job-admin}
+    access-token: ${XXL_JOB_ACCESS_TOKEN:}
+    app-name: ${spring.application.name}
+    port: ${XXL_JOB_EXECUTOR_PORT:9999}
+    log-path: ${XXL_JOB_LOG_PATH:./logs/xxl-job}
+    log-retention-days: 30
+  search:
+    elasticsearch-enabled: ${ELASTICSEARCH_ENABLED:false}
+    nodes: ${ELASTICSEARCH_NODES:http://localhost:9200}
+    alias: club-subject-search
+    verify-delay-millis: 600000
+  canal:
+    enabled: ${CANAL_ENABLED:false}
+    host: ${CANAL_HOST:localhost}
+    port: ${CANAL_PORT:11111}
+    destination: ${CANAL_DESTINATION:example}
+management:
+  endpoints.web.exposure.include: health,info,metrics,prometheus
+  endpoint.health.show-details: when_authorized
+  metrics.tags.application: ${spring.application.name}

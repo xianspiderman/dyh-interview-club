@@ -1,0 +1,4 @@
+server.port: ${CIRCLE_SERVICE_PORT:3024}
+spring:
+  config.import: classpath:club-platform-defaults.yml
+  application.name: club-circle-service

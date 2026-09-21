@@ -23,6 +23,7 @@
         <module>dyh-club-gateway</module>
         <module>dyh-club-lock-spring-boot-starter</module>
         <module>dyh-club-platform</module>
+        <module>dyh-club-runtime-services</module>
     </modules>
 
     <properties>

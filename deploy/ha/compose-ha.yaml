@@ -1,0 +1,79 @@
+x-sentinel: &sentinel
+  image: redis:7.2-alpine
+  command: ["sh", "-c", "cp /etc/redis/sentinel.conf /tmp/sentinel.conf && redis-sentinel /tmp/sentinel.conf"]
+  volumes: ["./redis/sentinel.conf:/etc/redis/sentinel.conf:ro"]
+  depends_on: [redis-master, redis-replica-1, redis-replica-2]
+x-nacos: &nacos
+  image: nacos/nacos-server:v2.4.0
+  environment: &nacos-env
+    MODE: cluster
+    NACOS_SERVERS: nacos-1:8848 nacos-2:8848 nacos-3:8848
+    SPRING_DATASOURCE_PLATFORM: mysql
+    MYSQL_SERVICE_HOST: nacos-mysql
+    MYSQL_SERVICE_DB_NAME: nacos
+    MYSQL_SERVICE_USER: nacos
+    MYSQL_SERVICE_PASSWORD: ${NACOS_DB_PASSWORD:-nacos-ha-local-only}
+    NACOS_AUTH_ENABLE: "true"
+    NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN:-VGhpcy1pcy1vbmx5LWEtbG9jYWwtSEEtZGVtby10b2tlbi0xMjM0NTY3OA==}
+    NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY:-clubServerIdentity}
+    NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:-club-ha-local-only}
+  depends_on: [nacos-mysql]
+x-es: &es
+  image: dyh-club-elasticsearch-ik:7.17.24
+  environment: &es-env
+    cluster.name: club-search-ha
+    discovery.seed_hosts: es-1,es-2,es-3
+    cluster.initial_master_nodes: es-1,es-2,es-3
+    xpack.security.enabled: "false"
+    bootstrap.memory_lock: "true"
+    ES_JAVA_OPTS: -Xms1g -Xmx1g
+  ulimits: {memlock: {soft: -1, hard: -1}}
+services:
+  redis-master:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--appendonly", "yes", "--repl-diskless-sync", "yes"]
+  redis-replica-1:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--replicaof", "redis-master", "6379", "--appendonly", "yes"]
+    depends_on: [redis-master]
+  redis-replica-2:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--replicaof", "redis-master", "6379", "--appendonly", "yes"]
+    depends_on: [redis-master]
+  sentinel-1: {<<: *sentinel}
+  sentinel-2: {<<: *sentinel}
+  sentinel-3: {<<: *sentinel}
+  namesrv-1:
+    image: apache/rocketmq:4.9.4
+    command: sh mqnamesrv
+  namesrv-2:
+    image: apache/rocketmq:4.9.4
+    command: sh mqnamesrv
+  broker-master:
+    image: apache/rocketmq:4.9.4
+    environment: {NAMESRV_ADDR: "namesrv-1:9876;namesrv-2:9876"}
+    command: sh mqbroker -c /home/rocketmq/conf/broker.conf
+    volumes: ["./rocketmq/broker-master.conf:/home/rocketmq/conf/broker.conf:ro"]
+    depends_on: [namesrv-1, namesrv-2]
+  broker-slave:
+    image: apache/rocketmq:4.9.4
+    environment: {NAMESRV_ADDR: "namesrv-1:9876;namesrv-2:9876"}
+    command: sh mqbroker -c /home/rocketmq/conf/broker.conf
+    volumes: ["./rocketmq/broker-slave.conf:/home/rocketmq/conf/broker.conf:ro"]
+    depends_on: [namesrv-1, namesrv-2, broker-master]
+  nacos-mysql:
+    image: mysql:8.0.39
+    environment: {MYSQL_DATABASE: nacos, MYSQL_USER: nacos, MYSQL_PASSWORD: "${NACOS_DB_PASSWORD:-nacos-ha-local-only}", MYSQL_ROOT_PASSWORD: "${NACOS_DB_ROOT_PASSWORD:-nacos-root-ha-local-only}"}
+  nacos-1: {<<: *nacos}
+  nacos-2: {<<: *nacos}
+  nacos-3: {<<: *nacos}
+  es-1:
+    <<: *es
+    build: {context: ../.., dockerfile: deploy/elasticsearch/Dockerfile}
+    environment: {<<: *es-env, node.name: es-1}
+  es-2:
+    <<: *es
+    environment: {<<: *es-env, node.name: es-2}
+  es-3:
+    <<: *es
+    environment: {<<: *es-env, node.name: es-3}

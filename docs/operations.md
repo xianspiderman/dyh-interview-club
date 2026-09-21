@@ -3,7 +3,10 @@
 ## 健康检查
 
 ```powershell
-Invoke-RestMethod http://localhost:3020/actuator/health
+Invoke-RestMethod http://localhost:3021/actuator/health
+Invoke-RestMethod http://localhost:3022/actuator/health
+Invoke-RestMethod http://localhost:3023/actuator/health
+Invoke-RestMethod http://localhost:3024/actuator/health
 Invoke-RestMethod http://localhost:5000/api/ops/dashboard
 docker compose ps
 ```
@@ -30,12 +33,12 @@ docker compose ps
 
 1. 暂停 Elasticsearch 后搜索，确认响应为 `MYSQL_LIMITED` 且第 6 页被拒绝。
 2. 恢复后调用管理员 `POST /api/search/verify` 修复漏同步。
-3. `POST /api/search/rebuild` 创建时间戳索引，完成后原子切换别名；不要提前删除旧索引。
+3. `POST /api/search/rebuild` 记录起点 binlog/checkpoint，创建时间戳索引，分批写入后重放期间增量并校验，最后原子切换别名。切换和 Canal 写批次共用 `search:cutover:all` 分布式锁，单进程内再使用公平读写锁封闭最终重放窗口；旧索引需保留到观察期结束。
 4. 如新索引异常，使用 Elasticsearch `_aliases` 将 `club-subject-search` 切回旧索引，再定位映射或数据问题。
 
 ### Canal 重复与乱序
 
-Canal 只传题目 ID，消费者总是从 MySQL 读取当前完整快照并覆盖 ES 文档；因此重复与旧 binlog 不会把文档回滚。批次中任一文档失败时执行 rollback 而不 ack，位点与错误记录在 `club_search_checkpoint`。
+Canal 只传题目 ID，消费者每批最多 500 个 ID，从 MySQL 批量读取当前快照并 Bulk 覆盖或删除 ES 文档；重复事件不会回滚文档。Bulk 逐项检查并只重试失败 ID，全部成功后才更新 checkpoint 并 ack；异常时 rollback，错误记录在 `club_search_checkpoint`。
 
 ### 多实例检查
 
@@ -48,3 +51,7 @@ Canal 只传题目 ID，消费者总是从 MySQL 读取当前完整快照并覆�
 ## 恢复原则
 
 MySQL 永远是最终数据依据。Redis 可重建，Elasticsearch 可通过 MySQL 全量重建加 Canal 增量重放恢复；RocketMQ 和 pending 用于缩短一致性窗口，不能绕开数据库唯一约束和条件更新。
+
+## 部署模式边界
+
+`compose.yaml` 用于本地演示，组件可按需精简，不宣称生产高可用。`deploy/ha/compose-ha.yaml` 是生产型拓扑证据：Redis 一主两从和三 Sentinel、RocketMQ 双 NameServer 与同步主从/同步刷盘、Nacos 三节点以及 Elasticsearch 三节点。该参考在真实环境使用前必须接入持久卷、TLS、监控、备份和外部秘密管理，并初始化 Nacos 官方数据库 schema。

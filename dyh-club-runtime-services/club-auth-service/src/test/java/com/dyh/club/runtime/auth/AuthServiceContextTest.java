@@ -1,0 +1,1 @@
+package com.dyh.club.runtime.auth;import org.junit.jupiter.api.Test;import org.springframework.boot.test.context.SpringBootTest;@SpringBootTest class AuthServiceContextTest{@Test void contextLoads(){}}

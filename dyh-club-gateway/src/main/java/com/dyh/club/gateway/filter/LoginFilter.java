@@ -21,12 +21,12 @@ public class LoginFilter implements GlobalFilter {
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         ServerHttpRequest request = exchange.getRequest();
-        ServerHttpRequest.Builder mutate = request.mutate().headers(headers -> headers.remove("loginId"));
+        ServerHttpRequest.Builder mutate = request.mutate().headers(headers -> {headers.remove("loginId");headers.remove("X-User-Id");});
         String url = request.getURI().getPath();
-        if (StpUtil.isLogin()) {
-            mutate.header("loginId", StpUtil.getLoginIdAsString());
-        }
-        log.debug("网关身份上下文处理完成，path={}, authenticated={}", url, StpUtil.isLogin());
+        boolean authenticated=false;
+        try{authenticated=StpUtil.isLogin();if(authenticated)mutate.header("loginId",StpUtil.getLoginIdAsString()).header("X-User-Id",StpUtil.getLoginIdAsString());}
+        catch(Exception sessionError){log.warn("网关读取 Session 失败，公开只读路由不注入用户上下文，path={}",url,sessionError);}
+        log.debug("网关身份上下文处理完成，path={}, authenticated={}", url, authenticated);
         return chain.filter(exchange.mutate().request(mutate.build()).build());
     }
 }

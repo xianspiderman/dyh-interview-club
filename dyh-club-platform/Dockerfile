@@ -9,7 +9,7 @@ RUN mvn -B -ntp -f dyh-club-lock-spring-boot-starter/pom.xml -DskipTests install
 FROM eclipse-temurin:8-jre-alpine
 WORKDIR /app
 RUN addgroup -S club && adduser -S club -G club
-COPY --from=build /workspace/dyh-club-platform/target/dyh-club-platform-1.0-SNAPSHOT.jar app.jar
+COPY --from=build /workspace/dyh-club-platform/target/dyh-club-platform-1.0-SNAPSHOT-exec.jar app.jar
 USER club
 EXPOSE 3020
 ENTRYPOINT ["java", "-XX:+ExitOnOutOfMemoryError", "-jar", "/app/app.jar"]

@@ -1,0 +1,19 @@
+server.port: ${PRACTICE_SERVICE_PORT:3023}
+spring:
+  config.import: classpath:club-platform-defaults.yml
+  application.name: club-practice-service
+feign:
+  circuitbreaker.enabled: true
+  client.config.default:
+    connectTimeout: 500
+    readTimeout: 1000
+club.practice:
+  remote-subject: true
+  subject-url: ${SUBJECT_SERVICE_URL:http://localhost:3022}
+resilience4j.circuitbreaker.instances.subjectQuestionClient:
+  slidingWindowType: COUNT_BASED
+  slidingWindowSize: 20
+  minimumNumberOfCalls: 10
+  failureRateThreshold: 50
+  waitDurationInOpenState: 10s
+  permittedNumberOfCallsInHalfOpenState: 5

@@ -1,0 +1,3 @@
+spring.cloud.nacos:
+  config: {enabled: "${NACOS_CONFIG_ENABLED:false}", server-addr: "${NACOS_SERVER_ADDR:localhost:8848}"}
+  discovery: {enabled: "${NACOS_DISCOVERY_ENABLED:false}", server-addr: "${NACOS_SERVER_ADDR:localhost:8848}"}

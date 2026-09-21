@@ -1,0 +1,4 @@
+spring:
+  datasource: {url: "jdbc:h2:mem:subject;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE", username: sa, password: ""}
+  autoconfigure.exclude: "org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration,org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration,cn.dev33.satoken.dao.SaTokenDaoRedisJackson"
+club: {internal: {token: test-internal-token-only}, demo: {enabled: false}, lock: {enabled: false}, rocketmq: {enabled: false}, search: {elasticsearch-enabled: false}, canal: {enabled: false}}

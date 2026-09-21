@@ -1,0 +1,10 @@
+server:
+  port: ${AUTH_SERVICE_PORT:3021}
+spring:
+  config:
+    import: classpath:club-platform-defaults.yml
+  application:
+    name: club-auth-service
+club:
+  demo:
+    enabled: ${CLUB_DEMO_ENABLED:false}

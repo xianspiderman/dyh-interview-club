@@ -72,9 +72,9 @@ class ClubPlatformIntegrationTest {
     @Test @Order(4)
     void likeConsumerIgnoresDuplicateAndOutOfOrderEvents() {
         long q=jdbc.queryForObject("SELECT MIN(id) FROM club_question",Long.class),u=jdbc.queryForObject("SELECT id FROM club_user WHERE username='club-user'",Long.class);
-        assertThat(likePersistence.apply(new LikeEvent(q,u,true,2))).isTrue();
-        assertThat(likePersistence.apply(new LikeEvent(q,u,false,1))).isFalse();
-        assertThat(likePersistence.apply(new LikeEvent(q,u,true,2))).isFalse();
+        assertThat(likePersistence.apply(new LikeEvent(q,u,true,2))).isEqualTo(LikePersistenceService.ApplyResult.APPLIED);
+        assertThat(likePersistence.apply(new LikeEvent(q,u,false,1))).isEqualTo(LikePersistenceService.ApplyResult.STALE);
+        assertThat(likePersistence.apply(new LikeEvent(q,u,true,2))).isEqualTo(LikePersistenceService.ApplyResult.ALREADY_APPLIED);
         assertThat(jdbc.queryForObject("SELECT liked FROM club_question_like WHERE question_id=? AND user_id=?",Boolean.class,q,u)).isTrue();
     }
 
@@ -154,5 +154,35 @@ class ClubPlatformIntegrationTest {
         assertThat(likes.set(q,u,false)).containsEntry("liked",false);
         assertThat(likes.status(q,u)).containsEntry("liked",false).containsEntry("count",0L);
         assertThat(likes.recover(1000)).isZero();
+    }
+
+    @Test @Order(12)
+    void redisEmptyOrApplicationRestartCannotMoveLikeVersionBackwards() {
+        long q=jdbc.queryForObject("SELECT MIN(id) FROM club_question WHERE status='PUBLISHED'",Long.class);
+        long u=jdbc.queryForObject("SELECT id FROM club_user WHERE username='club-admin'",Long.class);
+        jdbc.update("DELETE FROM club_like_version WHERE question_id=? AND user_id=?",q,u);
+        jdbc.update("DELETE FROM club_question_like WHERE question_id=? AND user_id=?",q,u);
+        jdbc.update("INSERT INTO club_question_like(question_id,user_id,liked,state_version) VALUES(?,?,TRUE,41)",q,u);
+
+        Map<String,Object> unlike=likes.set(q,u,false);
+        assertThat(((Number)unlike.get("version")).longValue()).isGreaterThan(41L);
+        assertThat(jdbc.queryForObject("SELECT liked FROM club_question_like WHERE question_id=? AND user_id=?",Boolean.class,q,u)).isFalse();
+        long afterUnlike=jdbc.queryForObject("SELECT state_version FROM club_question_like WHERE question_id=? AND user_id=?",Long.class,q,u);
+
+        Map<String,Object> relike=likes.set(q,u,true);
+        assertThat(((Number)relike.get("version")).longValue()).isGreaterThan(afterUnlike);
+        assertThat(jdbc.queryForObject("SELECT liked FROM club_question_like WHERE question_id=? AND user_id=?",Boolean.class,q,u)).isTrue();
+    }
+
+    @Test @Order(13)
+    void databaseVersionAllocatorIsMonotonicAcrossConcurrentInstances() throws Exception {
+        long q=jdbc.queryForObject("SELECT MAX(id) FROM club_question",Long.class),u=991L;
+        jdbc.update("DELETE FROM club_like_version WHERE question_id=? AND user_id=?",q,u);
+        java.util.concurrent.ExecutorService pool=java.util.concurrent.Executors.newFixedThreadPool(6);
+        try {
+            List<java.util.concurrent.Future<Long>> futures=new ArrayList<>();for(int i=0;i<12;i++)futures.add(pool.submit(()->likePersistence.nextVersion(q,u)));
+            Set<Long> versions=new TreeSet<>();for(java.util.concurrent.Future<Long> future:futures)versions.add(future.get());
+            assertThat(versions).hasSize(12);assertThat(versions.iterator().next()).isEqualTo(1L);assertThat(((TreeSet<Long>)versions).last()).isEqualTo(12L);
+        } finally { pool.shutdownNow(); }
     }
 }

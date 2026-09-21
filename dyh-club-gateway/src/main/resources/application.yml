@@ -5,31 +5,51 @@ spring:
   cloud:
     gateway:
       routes:
-        - id: club-platform
-          uri: ${CLUB_PLATFORM_URI:http://localhost:3020}
+        - id: club-circle-sensitive-admin
+          uri: ${CLUB_CIRCLE_URI:http://localhost:3024}
           predicates:
-            - Path=/api/**,/actuator/**
+            - Path=/api/admin/sensitive-words/**
+        - id: club-circle-content-admin
+          uri: ${CLUB_CIRCLE_URI:http://localhost:3024}
+          predicates:
+            - Path=/api/admin/posts,/api/admin/comments,/api/admin/post/**,/api/admin/comment/**
+        - id: club-auth-service
+          uri: ${CLUB_AUTH_URI:http://localhost:3021}
+          predicates:
+            - Path=/api/auth/**
+        - id: club-subject-service
+          uri: ${CLUB_SUBJECT_URI:http://localhost:3022}
+          predicates:
+            - Path=/api/questions/**,/api/catalog/**,/api/search/**,/api/admin/**,/api/ops/**,/actuator/**
+        - id: club-practice-service
+          uri: ${CLUB_PRACTICE_URI:http://localhost:3023}
+          predicates:
+            - Path=/api/practices/**
+        - id: club-circle-service
+          uri: ${CLUB_CIRCLE_URI:http://localhost:3024}
+          predicates:
+            - Path=/api/community/**
         - id: oss
           uri: lb://dyh-club-oss-dev
           predicates:
             - Path=/oss/**
           filters:
             - StripPrefix=1
-        - id: auth
+        - id: legacy-auth
           uri: lb://dyh-club-auth-dev
           predicates:
             - Path=/auth/**
           filters:
             - StripPrefix=1
-        - id: subject
+        - id: legacy-subject
           uri: lb://dyh-club-subject-dev
           predicates:
             - Path=/subject/**
-        - id: practice
+        - id: legacy-practice
           uri: lb://dyh-club-practice-dev
           predicates:
             - Path=/practice/**
-        - id: circle
+        - id: legacy-circle
           uri: lb://dyh-club-circle-dev
           predicates:
             - Path=/circle/**
@@ -52,3 +72,6 @@ sa-token:
   is-share: true
   token-style: uuid
   is-log: false
+club:
+  gateway:
+    trust-forwarded-for: ${CLUB_GATEWAY_TRUST_FORWARDED_FOR:false}

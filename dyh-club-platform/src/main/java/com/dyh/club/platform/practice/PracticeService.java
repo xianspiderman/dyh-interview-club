@@ -1,7 +1,6 @@
 package com.dyh.club.platform.practice;
 
 import com.dyh.club.platform.common.BizException;
-import com.dyh.club.platform.question.QuestionService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -15,9 +14,9 @@ import java.util.*;
 @Service
 public class PracticeService {
     private final JdbcTemplate jdbc;
-    private final QuestionService questions;
+    private final PracticeQuestionGateway questions;
 
-    public PracticeService(JdbcTemplate jdbc, QuestionService questions) { this.jdbc = jdbc; this.questions = questions; }
+    public PracticeService(JdbcTemplate jdbc, PracticeQuestionGateway questions) { this.jdbc = jdbc; this.questions = questions; }
 
     @Transactional
     public long generate(long userId, GenerateRequest request) {
@@ -61,7 +60,7 @@ public class PracticeService {
         assertOwner(userId, practiceId);
         Map<String, Object> practice = new LinkedHashMap<>(jdbc.queryForMap("SELECT id,title,status,started_at,submitted_at,elapsed_seconds,correct_count,total_count FROM club_practice WHERE id=?", practiceId));
         List<Map<String, Object>> items = jdbc.query("SELECT question_id,answer_content,answer_status,correct_flag FROM club_practice_question WHERE practice_id=? ORDER BY id",
-                (rs, n) -> { Map<String,Object> row=new LinkedHashMap<>(); long questionId=rs.getLong("question_id"); row.put("questionId",questionId); row.put("answer",rs.getString("answer_content")); row.put("answerStatus",rs.getString("answer_status")); Object correct=rs.getObject("correct_flag"); row.put("correct",correct==null?null:rs.getBoolean("correct_flag")); row.put("question",questions.detail(questionId,false)); return row; }, practiceId);
+                (rs, n) -> { Map<String,Object> row=new LinkedHashMap<>(); long questionId=rs.getLong("question_id"); row.put("questionId",questionId); row.put("answer",rs.getString("answer_content")); row.put("answerStatus",rs.getString("answer_status")); Object correct=rs.getObject("correct_flag"); row.put("correct",correct==null?null:rs.getBoolean("correct_flag")); row.put("question",questions.detail(questionId)); return row; }, practiceId);
         practice.put("questions", items);
         return practice;
     }

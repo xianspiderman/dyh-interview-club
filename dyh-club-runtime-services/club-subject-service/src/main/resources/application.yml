@@ -1,0 +1,7 @@
+server:
+  port: ${SUBJECT_SERVICE_PORT:3022}
+spring:
+  config:
+    import: classpath:club-platform-defaults.yml
+  application:
+    name: club-subject-service

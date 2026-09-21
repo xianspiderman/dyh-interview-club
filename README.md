@@ -4,11 +4,13 @@
 
 > 本地演示入口：`http://localhost:8088`　管理员：`club-admin / Club@123`　普通用户：`club-user / Club@123`。这些是公开的本地开发凭证，禁止用于生产环境。
 
-![面试刷题 Club 中文首页](docs/screenshots/club-home.svg)
+![面试刷题 Club 中文界面示意图](docs/screenshots/club-home.svg)
 
-## 你可以演示什么
+> 上图为界面示意图；页面运行时的题目、练习、社区和指标数据均来自真实接口，不使用前端硬编码业务数据。
 
-1. 登录后在题库按名称搜索，查看 Elasticsearch 高亮；关闭 ES 后可观察受限 MySQL 名称查询降级。
+## 核心功能
+
+1. 登录后在题库按名称搜索并查看 Elasticsearch 高亮；ES 不可用时自动进入受限 MySQL 名称查询降级。
 2. 生成专项练习，逐题保存答案，刷新后从“未完成练习”恢复，交卷后查看正确率和标签薄弱项；重复交卷不会重复判分。
 3. 发布帖子、一级评论和多级回复；首屏每条评论只预览 3 条回复，更多回复按页懒加载。
 4. 点赞或取消点赞；Redis Lua 原子更新实时状态与计数，RocketMQ 异步落库，XXL-JOB/内置调度补偿遗漏。
@@ -20,20 +22,28 @@
 ```mermaid
 flowchart LR
     Browser["Vue 3 中文前端"] --> Gateway["Spring Cloud Gateway<br/>鉴权上下文 + 两层限流"]
-    Gateway --> Platform["Club Platform<br/>核心可演示业务"]
+    Gateway --> Auth["认证服务 :3021"]
+    Gateway --> Subject["题目服务 :3022"]
+    Gateway --> Practice["练题服务 :3023"]
+    Gateway --> Circle["社区服务 :3024"]
     Gateway -. "注册发现 / 配置" .-> Nacos[(Nacos)]
-    Platform --> MySQL[(MySQL 8<br/>最终数据依据)]
-    Platform --> Redis[(Redis<br/>Session / L2 / 点赞实时态)]
-    Platform --> Caffeine["Caffeine<br/>单实例 L1"]
-    Platform --> RocketMQ["RocketMQ<br/>点赞实时异步持久化"]
-    RocketMQ --> Platform
-    Platform --> XXL["XXL-JOB Handler<br/>补偿 / 校验"]
+    Auth --> MySQL[(MySQL 8<br/>最终数据依据)]
+    Auth --> Redis[(Redis<br/>共享 Session)]
+    Subject --> MySQL
+    Subject --> Redis
+    Subject --> Caffeine["Caffeine<br/>单实例 L1"]
+    Subject --> RocketMQ["RocketMQ<br/>点赞实时异步持久化"]
+    RocketMQ --> Subject
+    Subject --> XXL["XXL-JOB Handler<br/>补偿 / 校验"]
+    Practice -->|"OpenFeign 500ms/1s + 熔断"| Subject
+    Practice --> MySQL
+    Circle --> MySQL
     MySQL -->|binlog| Canal[Canal]
-    Canal --> Platform
-    Platform --> ES[(Elasticsearch 3 节点<br/>全文 / 排序 / 高亮)]
+    Canal --> Subject
+    Subject --> ES[(Elasticsearch 3 节点<br/>全文 / 排序 / 高亮)]
 ```
 
-核心展示业务位于 `dyh-club-platform`，复用原仓库的微服务与 Gateway，而不是删除旧模块。这样既保留原有领域拆分，又提供一条无需逐个启动旧服务即可验证的完整业务链。`dyh-club-lock-spring-boot-starter` 是被缓存重建和搜索校验真实调用的通用组件。
+实际展示链路由 Gateway 路由到认证、题目、练题和社区四个独立 Spring Boot 进程。`dyh-club-platform` 保存共享领域实现、迁移和快速 H2 集成测试，不作为 `/api/**` 的运行时总入口；`dyh-club-lock-spring-boot-starter` 被缓存重建和搜索校验的真实调用链使用。
 
 ### 模块
 
@@ -41,9 +51,10 @@ flowchart LR
 | --- | --- |
 | `dyh-club-web` | Vue 3 + TypeScript 中文 SPA，真实调用后端接口 |
 | `dyh-club-gateway` | 统一入口、Sa-Token 身份上下文、防伪造用户头、全局与用户/IP 两层限流 |
-| `dyh-club-platform` | 认证、题库、练习、社区、点赞、敏感词、搜索、管理端和运维面板 |
+| `dyh-club-runtime-services` | 四个可独立启动的核心服务；练题服务通过带内部凭证的 OpenFeign 接口调用题目服务 |
+| `dyh-club-platform` | 共享业务实现、Flyway 迁移、聚合/辅助启动器和 H2 快速集成测试；不承接 Gateway 全量路由 |
 | `dyh-club-lock-spring-boot-starter` | 属性绑定、条件装配、默认 Bean、AOP、Redis NX 加锁与 Lua 安全释放 |
-| `dyh-club-auth/subject/practice/circle/...` | 原有微服务实现，保留并可继续独立部署 |
+| `dyh-club-auth/subject/practice/circle/...` | 原有领域模块，保留历史实现；现场主链路使用 `dyh-club-runtime-services` |
 | `db` / `deploy` | 旧库兼容脚本、容器初始化和 Canal 复制账号 |
 
 ## 核心链路
@@ -54,11 +65,14 @@ flowchart LR
 sequenceDiagram
     actor U as 用户
     participant W as 中文前端
+    participant G as Gateway
     participant P as Practice Service
+    participant S as Subject Service
     participant Q as 题型工厂/策略
     participant D as MySQL
     U->>W: 选择条件并生成练习
-    W->>P: POST /api/practices
+    W->>G: POST /api/practices
+    G->>P: 校验 Session 并传递用户上下文
     P->>D: 固化题单与总题数
     loop 答题过程
       W->>P: PUT /answers
@@ -67,7 +81,8 @@ sequenceDiagram
     W->>P: POST /submit
     P->>D: 条件更新 IN_PROGRESS → SUBMITTED
     alt 首次交卷
-      P->>Q: 按 RADIO/MULTIPLE/JUDGE 策略判分
+      P->>S: OpenFeign 读取题目与正确答案
+      S->>Q: 按 RADIO/MULTIPLE/JUDGE 策略判分
       P->>D: 保存明细与报告
     else 重复交卷
       P->>D: 直接读取既有报告
@@ -80,17 +95,19 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant A as API
+    participant V as MySQL 版本分配器
     participant R as Redis Lua
     participant M as RocketMQ
     participant D as MySQL
     participant J as XXL-JOB / Scheduler
-    A->>R: 原子比较状态、递增版本、更新计数、写 pending
+    A->>V: 行锁分配跨实例单调 state_version
+    A->>R: 缺失时用 DB 状态初始化；原子更新状态、计数和 pending
     R-->>A: 立即返回实时状态
     A->>M: businessKey 顺序发送，生产重试 2 次
     M->>D: 唯一键 + state_version 条件更新
     M->>R: 比较版本后删除 pending
     J->>R: 每分钟扫描，单批 500
-    J->>D: 补偿遗漏；旧版本与重复事件被忽略
+    J->>D: 补偿遗漏；低版本拒绝且不误清 pending
 ```
 
 ### 缓存与搜索
@@ -98,7 +115,7 @@ sequenceDiagram
 - 题目详情：Caffeine 30 秒 → Redis `600 + [0,120]` 秒 → MySQL；不存在值缓存 120 秒。
 - 热点回源：Starter 分布式锁使用唯一持有者、5 秒租期和 Lua compare-and-delete；数据库条件更新、唯一约束和消息版本仍负责最终正确性。
 - 写操作：事务中记录缓存失效任务；提交后删除 Redis 并通过 Pub/Sub 通知所有实例清理本地缓存。失败任务由调度器重试，TTL 是最终兜底。
-- 搜索：Canal 消费 MySQL ROW binlog，按题目 ID 重建文档；重复事件天然覆盖，失败批次 rollback。每 10 分钟校验漏同步；全量重建写新索引后原子切别名，旧索引可用于回退。
+- 搜索：应用轮询配置的全部 ES 节点，题目名称与答案使用 `ik_max_word/ik_smart`。Canal 单批最多聚合 500 个题目 ID，批量回查并 Bulk 写入；逐项检查结果并只重试失败文档，全部成功后才提交 checkpoint/ack。每 10 分钟只校验近期变更。全量重建记录起点位置，分页写新索引、重放重建期间增量、校验数量并原子切换别名；切换与 Canal 写入共用 Redis 分布式互斥和进程内公平读写锁，避免并发修改、下架或删除被旧快照覆盖。
 - Elasticsearch 不可用时只开放前 5 页、每页最多 20 条的 MySQL 名称查询，并在响应中明确 `source=MYSQL_LIMITED` 与 `degraded=true`。
 
 ## 数据模型
@@ -110,9 +127,9 @@ sequenceDiagram
 | 目录 | `club_category`、`club_label`、两张映射表 | 分类/标签筛选索引、组合唯一约束 |
 | 练习 | `club_practice`、`club_practice_question` | 用户归属、题单唯一、条件交卷与版本号 |
 | 社区 | `club_circle`、`club_post`、`club_comment` | 根评论/父评论索引、逻辑状态、计数维护 |
-| 点赞 | `club_question_like` | `(question_id,user_id)` 唯一，`state_version` 防重与防乱序 |
+| 点赞 | `club_question_like`、`club_like_version` | 状态唯一键；数据库行锁分配跨 Redis 重启/应用重启的单调版本 |
 | 治理 | `club_sensitive_word`、`club_content_recheck_task` | 黑白名单、词典版本、复检游标 |
-| 可靠性 | `club_cache_invalidation_task`、`club_job_run`、`club_search_checkpoint` | 可恢复任务、最近执行证据、同步位置 |
+| 可靠性 | `club_cache_invalidation_task`、`club_job_run`、`club_search_checkpoint`、`club_search_change_log/rebuild` | 可恢复任务、最近执行证据、同步位置和可审计重建 |
 
 Flyway 迁移位于 `dyh-club-platform/src/main/resources/db/migration`。迁移只向前执行，不依赖手工删表。
 
@@ -120,7 +137,7 @@ Flyway 迁移位于 `dyh-club-platform/src/main/resources/db/migration`。迁移
 
 - 聚合查询专用线程池：核心 16、最大 32、队列 200、`CallerRunsPolicy`；分支超时 300 ms，总超时 500 ms。
 - Web 容器：最小线程 20、最大 200、等待队列 100；Hikari 最大连接 40、连接等待 2 秒。
-- Gateway 全局限流：登录 20/s、搜索 200/s、交卷 30/s、点赞 100/s；用户/IP 限流分别为登录 5/min、搜索 10/s、交卷 1/s、点赞 2/s。
+- Gateway 全局与用户/IP 两层均使用 Redis 令牌桶，且两层均取到令牌才放行：全局登录 20/s、搜索 200/s、交卷 30/s、点赞 100/s；访问者分别为登录 5/min（容量 5）、搜索 10/s（容量 20）、交卷 1/s（容量 2）、点赞 2/s（容量 4）。Redis 异常时搜索只读请求可用性优先，登录、交卷和点赞失败关闭。
 - RocketMQ：生产失败重试 2 次、消费最大重试 5 次、业务键定队列、消费线程上限 4；pending 超过 5000 条或最老记录超过 2 分钟触发面板告警，管理员受控恢复单批最多 100 条。
 - 搜索索引：1 个主分片、1 个副本，推荐 3 节点；同步目标 5 秒内，校验周期 10 分钟，批量恢复 500 条。
 - 评论：根评论每页 20 条、首屏回复预览 3 条、回复懒加载每页 20 条；敏感词复检每批 500 条。
@@ -132,7 +149,7 @@ Flyway 迁移位于 `dyh-club-platform/src/main/resources/db/migration`。迁移
 
 ```powershell
 Copy-Item .env.example .env
-docker compose up -d --build mysql redis platform gateway web
+docker compose up -d --build mysql redis auth-service subject-service practice-service circle-service gateway web
 docker compose ps
 ```
 
@@ -145,7 +162,9 @@ docker compose ps
 docker compose --profile full up -d --build
 ```
 
-完整模式额外启动 Nacos、RocketMQ、3 节点 Elasticsearch 和 Canal。XXL-JOB 的 handler 已注册，同时保留同周期 Spring Scheduler 作为本地无调度中心时的可运行入口；接入已有 XXL-JOB Admin 时设置 `XXL_JOB_ENABLED=true` 和对应地址即可。
+完整模式额外启动 Nacos、RocketMQ、内置 IK 的 3 节点 Elasticsearch 和 Canal。四个核心服务均具备可开关的 Nacos 注册/配置客户端；`scripts/middleware-smoke.ps1 -Full` 会启用注册发现并让 Gateway 通过 `lb://` 完成主链路验证。XXL-JOB 的 handler 已注册，同时保留同周期 Spring Scheduler 作为本地无调度中心时的可运行入口。
+
+`compose.yaml` 是本地演示配置，不代表生产高可用。`deploy/ha/compose-ha.yaml` 单独给出 Redis 主从与 3 Sentinel、RocketMQ 双 NameServer 与同步主从（`SYNC_FLUSH`）、Nacos 三节点和 Elasticsearch 三节点的生产型拓扑参考；生产凭证必须由环境变量或配置中心替换。
 
 停止服务不会删除数据：
 
@@ -158,10 +177,13 @@ docker compose down
 ### 非 Docker 开发
 
 ```powershell
-# 后端
-$env:SPRING_PROFILES_ACTIVE="demo"
-mvn -pl dyh-club-platform -am -DskipTests package
-java -jar dyh-club-platform/target/dyh-club-platform-1.0-SNAPSHOT.jar
+# 后端（分别在四个终端启动四个运行时模块）
+$env:CLUB_INTERNAL_TOKEN="club-local-internal-only" # 仅本地开发；生产必须替换
+mvn -pl dyh-club-runtime-services/club-auth-service,dyh-club-runtime-services/club-subject-service,dyh-club-runtime-services/club-practice-service,dyh-club-runtime-services/club-circle-service -am -DskipTests package
+java -jar dyh-club-runtime-services/club-auth-service/target/club-auth-service-1.0-SNAPSHOT.jar
+java -jar dyh-club-runtime-services/club-subject-service/target/club-subject-service-1.0-SNAPSHOT.jar
+java -jar dyh-club-runtime-services/club-practice-service/target/club-practice-service-1.0-SNAPSHOT.jar
+java -jar dyh-club-runtime-services/club-circle-service/target/club-circle-service-1.0-SNAPSHOT.jar
 
 # 网关（另一终端）
 mvn -f dyh-club-gateway/pom.xml spring-boot:run
@@ -189,18 +211,24 @@ npm ci
 npm run typecheck
 npm run lint
 npm run build
+npm audit
 
 # Compose 静态校验
 docker compose config --quiet
 docker compose --profile full config --quiet
+docker compose -f deploy/ha/compose-ha.yaml config --quiet
+
+# Docker Engine 可用时执行真实中间件与四服务冒烟
+.\scripts\middleware-smoke.ps1
+.\scripts\middleware-smoke.ps1 -Full
 ```
 
-集成测试覆盖 Flyway、注册/登录/退出与权限、题目 CRUD、题型策略、缓存对象隔离和失效任务、断点续答、条件交卷、评论预览/懒加载、点赞重复/乱序与降级、敏感词干扰字符/热更新、搜索降级和真实面板。详细结果、证据与故障演练见 [工程验证记录](docs/verification.md)、[工程证据矩阵](docs/engineering-evidence.md) 和 [运维与故障演练](docs/operations.md)。
+全仓 40 个 Maven reactor 模块和 30 项自动测试覆盖 Flyway、四服务启动、Gateway 路由、注册/登录/退出与权限、题目 CRUD、题型策略、缓存对象隔离和失效任务、断点续答、条件交卷、评论预览/懒加载、点赞高版本恢复/并发分配/重复乱序、敏感词热更新、ES 集群/IK/Bulk 边界与切换锁、搜索降级和真实面板。详细结果、证据与故障演练见 [工程验证记录](docs/verification.md)、[工程证据矩阵](docs/engineering-evidence.md) 和 [运维与故障演练](docs/operations.md)。
 
 ## 安全与配置
 
 - `.env`、证书、日志、构建目录和依赖目录均被 Git 忽略；`.env.example` 只含本地公开示例值。演示账号和演示题目仅在 `demo` 配置或测试环境创建，生产环境默认关闭。
-- 前端传入的 `loginId` 会被 Gateway 删除，只允许网关从 Sa-Token 会话重新注入；服务内部仍校验登录和资源归属，避免绕过与越权。
+- 前端传入的 `loginId`、`X-User-Id` 会被 Gateway 删除，只允许网关从 Sa-Token 会话重新注入；下游仍重新校验共享 Redis Session、管理员角色和资源归属，避免绕过与越权。
 - 密码使用 BCrypt；异常响应只返回中文安全信息与 TraceId，不返回堆栈、SQL 或内部地址。
 - 所有写入请求执行格式、长度、状态与归属校验；数据库唯一约束和条件更新抵御重复请求。
 - Actuator 只开放健康、指标和 Prometheus；面板不返回凭证、完整连接地址或危险管理操作。

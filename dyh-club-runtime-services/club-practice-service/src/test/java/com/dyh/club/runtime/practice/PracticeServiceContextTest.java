@@ -1,0 +1,1 @@
+package com.dyh.club.runtime.practice;import org.junit.jupiter.api.Test;import org.springframework.boot.test.context.SpringBootTest;@SpringBootTest class PracticeServiceContextTest{@Test void contextLoads(){}}
