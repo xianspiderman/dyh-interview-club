@@ -101,13 +101,13 @@ sequenceDiagram
     participant D as MySQL
     participant J as XXL-JOB / Scheduler
     A->>V: 行锁分配跨实例单调 state_version
-    A->>R: 缺失时用 DB 状态初始化；原子更新状态、计数和 pending
-    R-->>A: 立即返回实时状态
+    A->>R: 缺失时用 DB 状态初始化；仅接受更高版本
+    R-->>A: 返回 Redis 当前状态与版本
     A->>M: businessKey 顺序发送，生产重试 2 次
     M->>D: 唯一键 + state_version 条件更新
     M->>R: 比较版本后删除 pending
     J->>R: 每分钟扫描，单批 500
-    J->>D: 补偿遗漏；低版本拒绝且不误清 pending
+    J->>D: 补偿遗漏；低/等版本拒绝且不误写或清理 pending
 ```
 
 ### 缓存与搜索
@@ -115,7 +115,7 @@ sequenceDiagram
 - 题目详情：Caffeine 30 秒 → Redis `600 + [0,120]` 秒 → MySQL；不存在值缓存 120 秒。
 - 热点回源：Starter 分布式锁使用唯一持有者、5 秒租期和 Lua compare-and-delete；数据库条件更新、唯一约束和消息版本仍负责最终正确性。
 - 写操作：事务中记录缓存失效任务；提交后删除 Redis 并通过 Pub/Sub 通知所有实例清理本地缓存。失败任务由调度器重试，TTL 是最终兜底。
-- 搜索：应用轮询配置的全部 ES 节点，题目名称与答案使用 `ik_max_word/ik_smart`。Canal 单批最多聚合 500 个题目 ID，批量回查并 Bulk 写入；逐项检查结果并只重试失败文档，全部成功后才提交 checkpoint/ack。每 10 分钟只校验近期变更。全量重建记录起点位置，分页写新索引、重放重建期间增量、校验数量并原子切换别名；切换与 Canal 写入共用 Redis 分布式互斥和进程内公平读写锁，避免并发修改、下架或删除被旧快照覆盖。
+- 搜索：应用轮询配置的全部 ES 节点；题目名称与答案使用 `ik_max_word/ik_smart`，名称另有 `keyword` 子字段，文档保存 `createdAt(date)`。相关性检索采用 `name^2/answer` 权重，同分时按题目 ID 倒序，且只高亮名称和答案。Canal 单批最多聚合 500 个题目 ID，批量回查并 Bulk 写入；逐项检查结果并只重试失败文档，全部成功后才提交 checkpoint/ack。每 10 分钟只校验近期变更。全量重建记录起点位置，分页写新索引、重放重建期间增量、校验数量并原子切换别名；切换与 Canal 写入共用 Redis 分布式互斥和进程内公平读写锁，避免并发修改、下架或删除被旧快照覆盖。
 - Elasticsearch 不可用时只开放前 5 页、每页最多 20 条的 MySQL 名称查询，并在响应中明确 `source=MYSQL_LIMITED` 与 `degraded=true`。
 
 ## 数据模型
@@ -164,7 +164,17 @@ docker compose --profile full up -d --build
 
 完整模式额外启动 Nacos、RocketMQ、内置 IK 的 3 节点 Elasticsearch 和 Canal。四个核心服务均具备可开关的 Nacos 注册/配置客户端；`scripts/middleware-smoke.ps1 -Full` 会启用注册发现并让 Gateway 通过 `lb://` 完成主链路验证。XXL-JOB 的 handler 已注册，同时保留同周期 Spring Scheduler 作为本地无调度中心时的可运行入口。
 
-`compose.yaml` 是本地演示配置，不代表生产高可用。`deploy/ha/compose-ha.yaml` 单独给出 Redis 主从与 3 Sentinel、RocketMQ 双 NameServer 与同步主从（`SYNC_FLUSH`）、Nacos 三节点和 Elasticsearch 三节点的生产型拓扑参考；生产凭证必须由环境变量或配置中心替换。
+`compose.yaml` 是本地演示配置，不代表生产高可用。它默认通过 `REDIS_HOST/REDIS_PORT` 使用单 Redis，无需 Sentinel 参数。`deploy/ha/compose-ha.yaml` 单独给出 Redis 主从与 3 Sentinel、RocketMQ 双 NameServer与同步主从（`SYNC_FLUSH`）、自动初始化数据库并带就绪探针的 Nacos 三节点，以及 Elasticsearch 三节点的生产型拓扑参考；生产凭证必须由环境变量或配置中心替换。
+
+Gateway 和认证、题目、练题、社区四个运行时服务都使用 Spring Boot 原生 Redis 拓扑绑定。部署到 HA 网络时，为每个进程注入以下变量即可切换 Sentinel；不要同时注入单机 `REDIS_HOST/REDIS_PORT`：
+
+```powershell
+$env:SPRING_REDIS_SENTINEL_MASTER="clubmaster"
+$env:SPRING_REDIS_SENTINEL_NODES="sentinel-1:26379,sentinel-2:26379,sentinel-3:26379"
+# 有密码时另行从秘密管理系统注入 SPRING_REDIS_PASSWORD / SPRING_REDIS_SENTINEL_PASSWORD
+```
+
+可复制的变量清单位于 `deploy/ha/application-sentinel.env.example`；配置上下文测试分别验证 Gateway 与共享运行时配置确实创建 Sentinel-aware Lettuce 连接工厂。本地单机与 HA 拓扑的完整命令见 `deploy/ha/README.md`。
 
 停止服务不会删除数据：
 
@@ -223,7 +233,7 @@ docker compose -f deploy/ha/compose-ha.yaml config --quiet
 .\scripts\middleware-smoke.ps1 -Full
 ```
 
-全仓 40 个 Maven reactor 模块和 30 项自动测试覆盖 Flyway、四服务启动、Gateway 路由、注册/登录/退出与权限、题目 CRUD、题型策略、缓存对象隔离和失效任务、断点续答、条件交卷、评论预览/懒加载、点赞高版本恢复/并发分配/重复乱序、敏感词热更新、ES 集群/IK/Bulk 边界与切换锁、搜索降级和真实面板。详细结果、证据与故障演练见 [工程验证记录](docs/verification.md)、[工程证据矩阵](docs/engineering-evidence.md) 和 [运维与故障演练](docs/operations.md)。
+全仓 40 个 Maven reactor 模块和 36 项自动测试覆盖 Flyway、四服务启动、Gateway 路由、注册/登录/退出与权限、题目 CRUD、题型策略、缓存对象隔离和失效任务、断点续答、条件交卷、评论预览/懒加载、点赞高版本恢复/并发分配/版本乱序、Redis 单机与 Sentinel 配置绑定、敏感词热更新、ES 集群/Mapping/查询结构/Bulk 边界与切换锁、搜索降级和真实面板。详细结果、证据与故障演练见 [工程验证记录](docs/verification.md)、[工程证据矩阵](docs/engineering-evidence.md) 和 [运维与故障演练](docs/operations.md)。
 
 ## 安全与配置
 

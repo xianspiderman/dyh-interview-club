@@ -1,6 +1,7 @@
 package com.dyh.club.platform.search;
 
 import com.dyh.club.lock.DistributedLock;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -25,6 +26,34 @@ class SearchReliabilityTest {
         assertThat(service.configuredNodeCount()).isEqualTo(3);
         assertThat(new ObjectMapper().valueToTree(SearchService.indexDefinition()).toString())
                 .contains("ik_max_word", "ik_smart", "answer", "number_of_replicas\":1");
+    }
+
+    @Test
+    void mappingContainsNameKeywordAndCreatedAtDate() {
+        JsonNode properties = new ObjectMapper().valueToTree(SearchService.indexDefinition())
+                .path("mappings").path("properties");
+
+        assertThat(properties.path("name").path("fields").path("keyword").path("type").asText())
+                .isEqualTo("keyword");
+        assertThat(properties.path("createdAt").path("type").asText()).isEqualTo("date");
+        assertThat(properties.path("createdAt").path("format").asText())
+                .isEqualTo("strict_date_optional_time");
+    }
+
+    @Test
+    void relevanceQueryUsesTwoToOneWeightIdTieBreakAndOnlyNameAnswerHighlight() {
+        JsonNode body = new ObjectMapper().valueToTree(
+                SearchService.searchRequestBody("并发", 2L, 3L, "radio", "relevance", 1, 20));
+
+        JsonNode fields = body.path("query").path("bool").path("must").path("multi_match").path("fields");
+        assertThat(Arrays.asList(fields.get(0).asText(), fields.get(1).asText()))
+                .containsExactly("name^2", "answer");
+        assertThat(body.path("sort").get(0).path("_score").asText()).isEqualTo("desc");
+        assertThat(body.path("sort").get(1).path("id").asText()).isEqualTo("desc");
+        Set<String> highlightFields = new LinkedHashSet<>();
+        body.path("highlight").path("fields").fieldNames().forEachRemaining(highlightFields::add);
+        assertThat(highlightFields).containsExactlyInAnyOrder("name", "answer");
+        assertThat(body.toString()).doesNotContain("analysis");
     }
 
     @Test

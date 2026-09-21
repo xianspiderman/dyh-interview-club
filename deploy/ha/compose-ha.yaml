@@ -17,7 +17,14 @@ x-nacos: &nacos
     NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN:-VGhpcy1pcy1vbmx5LWEtbG9jYWwtSEEtZGVtby10b2tlbi0xMjM0NTY3OA==}
     NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY:-clubServerIdentity}
     NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:-club-ha-local-only}
-  depends_on: [nacos-mysql]
+  depends_on:
+    nacos-schema-init: {condition: service_completed_successfully}
+  healthcheck:
+    test: ["CMD-SHELL", "curl -fsS http://localhost:8848/nacos/v1/console/health/readiness || exit 1"]
+    interval: 10s
+    timeout: 5s
+    retries: 30
+    start_period: 30s
 x-es: &es
   image: dyh-club-elasticsearch-ik:7.17.24
   environment: &es-env
@@ -64,7 +71,32 @@ services:
   nacos-mysql:
     image: mysql:8.0.39
     environment: {MYSQL_DATABASE: nacos, MYSQL_USER: nacos, MYSQL_PASSWORD: "${NACOS_DB_PASSWORD:-nacos-ha-local-only}", MYSQL_ROOT_PASSWORD: "${NACOS_DB_ROOT_PASSWORD:-nacos-root-ha-local-only}"}
-  nacos-1: {<<: *nacos}
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - nacos-mysql-data:/var/lib/mysql
+      - ./nacos/mysql-schema.sql:/docker-entrypoint-initdb.d/01-nacos-2.4.0.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -unacos -p$${MYSQL_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 20s
+  nacos-schema-init:
+    image: mysql:8.0.39
+    environment: {MYSQL_PASSWORD: "${NACOS_DB_PASSWORD:-nacos-ha-local-only}"}
+    volumes: ["./nacos/mysql-schema.sql:/schema/mysql-schema.sql:ro"]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mysql -h nacos-mysql -unacos -p$${MYSQL_PASSWORD} nacos < /schema/mysql-schema.sql
+        && test "$$(mysql -h nacos-mysql -unacos -p$${MYSQL_PASSWORD} -Nse
+        \"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='nacos' AND table_name IN
+        ('config_info','config_info_aggr','config_info_beta','config_info_tag','config_tags_relation','group_capacity','his_config_info','tenant_capacity','tenant_info','users','roles','permissions')\")" = "12"
+    depends_on:
+      nacos-mysql: {condition: service_healthy}
+  nacos-1:
+    <<: *nacos
+    ports: ["8848:8848"]
   nacos-2: {<<: *nacos}
   nacos-3: {<<: *nacos}
   es-1:
@@ -77,3 +109,5 @@ services:
   es-3:
     <<: *es
     environment: {<<: *es-env, node.name: es-3}
+volumes:
+  nacos-mysql-data:

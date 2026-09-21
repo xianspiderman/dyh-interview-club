@@ -65,19 +65,7 @@ public class SearchService {
 
     @SuppressWarnings("unchecked")
     private Map<String,Object> elasticsearch(String keyword, Long categoryId, Long labelId, String type, String sort, int page, int size) {
-        List<Object> filters = new ArrayList<>();
-        filters.add(Collections.singletonMap("term", Collections.singletonMap("status", "PUBLISHED")));
-        if (categoryId != null) filters.add(Collections.singletonMap("term", Collections.singletonMap("categoryIds", categoryId)));
-        if (labelId != null) filters.add(Collections.singletonMap("term", Collections.singletonMap("labelIds", labelId)));
-        if (type != null && !type.trim().isEmpty()) filters.add(Collections.singletonMap("term", Collections.singletonMap("type", type.toUpperCase(Locale.ROOT))));
-        Map<String,Object> bool = new LinkedHashMap<>(); bool.put("filter", filters);
-        if (keyword.isEmpty()) bool.put("must", Collections.singletonMap("match_all", Collections.emptyMap()));
-        else bool.put("must", Collections.singletonMap("multi_match", map("query", keyword, "fields", Arrays.asList("name^3", "answer^2", "analysis"))));
-        Map<String,Object> body = new LinkedHashMap<>();
-        body.put("from", (page - 1) * size); body.put("size", size); body.put("query", Collections.singletonMap("bool", bool));
-        body.put("highlight", map("pre_tags", Collections.singletonList("<mark>"), "post_tags", Collections.singletonList("</mark>"),
-                "fields", map("name", Collections.emptyMap(), "answer",Collections.emptyMap(),"analysis", Collections.emptyMap())));
-        if ("latest".equalsIgnoreCase(sort)) body.put("sort", Arrays.asList(map("updatedAt", "desc"), map("_score", "desc")));
+        Map<String,Object> body = searchRequestBody(keyword, categoryId, labelId, type, sort, page, size);
         Map<String,Object> response = exchange("POST", "/" + alias + "/_search", body);
         Map<String,Object> hits = (Map<String,Object>) response.get("hits");
         Map<String,Object> totalNode = (Map<String,Object>) hits.get("total");
@@ -87,11 +75,30 @@ public class SearchService {
             Map<String,List<String>> highlight = (Map<String,List<String>>) hit.get("highlight");
             if (highlight != null) {
                 if (highlight.containsKey("name")) row.put("highlightName", highlight.get("name").get(0));
-                if (highlight.containsKey("analysis")) row.put("highlightAnalysis", highlight.get("analysis").get(0));
+                if (highlight.containsKey("answer")) row.put("highlightAnswer", highlight.get("answer").get(0));
             }
             records.add(row);
         }
         return page(records, ((Number) totalNode.get("value")).longValue(), page, size, "ELASTICSEARCH", false);
+    }
+
+    static Map<String,Object> searchRequestBody(String keyword, Long categoryId, Long labelId,
+                                                String type, String sort, int page, int size) {
+        List<Object> filters = new ArrayList<>();
+        filters.add(Collections.singletonMap("term", Collections.singletonMap("status", "PUBLISHED")));
+        if (categoryId != null) filters.add(Collections.singletonMap("term", Collections.singletonMap("categoryIds", categoryId)));
+        if (labelId != null) filters.add(Collections.singletonMap("term", Collections.singletonMap("labelIds", labelId)));
+        if (type != null && !type.trim().isEmpty()) filters.add(Collections.singletonMap("term", Collections.singletonMap("type", type.toUpperCase(Locale.ROOT))));
+        Map<String,Object> bool = new LinkedHashMap<>(); bool.put("filter", filters);
+        if (keyword.isEmpty()) bool.put("must", Collections.singletonMap("match_all", Collections.emptyMap()));
+        else bool.put("must", Collections.singletonMap("multi_match", map("query", keyword, "fields", Arrays.asList("name^2", "answer"))));
+        Map<String,Object> body = new LinkedHashMap<>();
+        body.put("from", (page - 1) * size); body.put("size", size); body.put("query", Collections.singletonMap("bool", bool));
+        body.put("highlight", map("pre_tags", Collections.singletonList("<mark>"), "post_tags", Collections.singletonList("</mark>"),
+                "fields", map("name", Collections.emptyMap(), "answer",Collections.emptyMap())));
+        if ("latest".equalsIgnoreCase(sort)) body.put("sort", Arrays.asList(map("updatedAt", "desc"), map("id", "desc")));
+        else body.put("sort", Arrays.asList(map("_score", "desc"), map("id", "desc")));
+        return body;
     }
 
     private Map<String,Object> mysqlFallback(String keyword, Long categoryId, Long labelId, String type, int page, int size) {
@@ -206,7 +213,7 @@ public class SearchService {
         if(requestedIds.isEmpty())return;if(requestedIds.size()>500)throw new IllegalArgumentException("单批题目 ID 不能超过 500 个");
         List<Long> ids=new ArrayList<>(requestedIds);String marks=String.join(",",Collections.nCopies(ids.size(),"?"));
         Map<Long,Map<String,Object>> questions=new LinkedHashMap<>();
-        for(Map<String,Object> q:jdbc.queryForList("SELECT id,name,analysis_text,difficulty,question_type,status,data_version,updated_at FROM club_question WHERE id IN ("+marks+")",ids.toArray()))questions.put(((Number)q.get("id")).longValue(),q);
+        for(Map<String,Object> q:jdbc.queryForList("SELECT id,name,analysis_text,difficulty,question_type,status,data_version,created_at,updated_at FROM club_question WHERE id IN ("+marks+")",ids.toArray()))questions.put(((Number)q.get("id")).longValue(),q);
         Map<Long,List<Long>> categories=longGroups("SELECT question_id,category_id FROM club_question_category WHERE question_id IN ("+marks+")",ids);
         Map<Long,List<Long>> labels=longGroups("SELECT question_id,label_id FROM club_question_label WHERE question_id IN ("+marks+")",ids);
         Map<Long,List<String>> answers=new LinkedHashMap<>();
@@ -214,7 +221,7 @@ public class SearchService {
             long id=((Number)row.get("question_id")).longValue();answers.computeIfAbsent(id,k->new ArrayList<>()).add(String.valueOf(row.get("answer_text")));
         }
         Set<Long> remaining=new LinkedHashSet<>(ids);Map<Long,Map<String,Object>> docs=new LinkedHashMap<>();
-        for(Long id:ids){Map<String,Object>q=questions.get(id);if(q!=null&&"PUBLISHED".equals(q.get("status"))){docs.put(id,map("id",id,"name",q.get("name"),"answer",String.join(" ",answers.getOrDefault(id,Collections.emptyList())),"analysis",q.get("analysis_text"),"difficulty",q.get("difficulty"),"type",q.get("question_type"),"status",q.get("status"),"version",q.get("data_version"),"updatedAt",timestamp(q.get("updated_at")),"categoryIds",categories.getOrDefault(id,Collections.emptyList()),"labelIds",labels.getOrDefault(id,Collections.emptyList())));}}
+        for(Long id:ids){Map<String,Object>q=questions.get(id);if(q!=null&&"PUBLISHED".equals(q.get("status"))){docs.put(id,map("id",id,"name",q.get("name"),"answer",String.join(" ",answers.getOrDefault(id,Collections.emptyList())),"analysis",q.get("analysis_text"),"difficulty",q.get("difficulty"),"type",q.get("question_type"),"status",q.get("status"),"version",q.get("data_version"),"createdAt",timestamp(q.get("created_at")),"updatedAt",timestamp(q.get("updated_at")),"categoryIds",categories.getOrDefault(id,Collections.emptyList()),"labelIds",labels.getOrDefault(id,Collections.emptyList())));}}
         for(int attempt=0;attempt<3&&!remaining.isEmpty();attempt++)remaining=bulkOnce(target,remaining,docs);
         if(!remaining.isEmpty())throw new IllegalStateException("Elasticsearch Bulk 仍有失败文档: "+remaining);
     }
@@ -228,8 +235,8 @@ public class SearchService {
     @SuppressWarnings("unchecked") static Set<Long> failedIds(Set<Long>ids,Map<String,Object>response){List<Map<String,Object>>items=(List<Map<String,Object>>)response.get("items");if(items==null||items.size()!=ids.size())throw new IllegalStateException("Bulk 返回条目数不匹配");Set<Long>failed=new LinkedHashSet<>();int i=0;for(Long id:ids){Map<String,Object>action=(Map<String,Object>)items.get(i++).values().iterator().next();int status=((Number)action.get("status")).intValue();if(status>=300&&status!=404)failed.add(id);}return failed;}
     int configuredNodeCount(){return nodes.size();}
     static Map<String,Object> indexDefinition(){return map("settings",map("number_of_shards",1,"number_of_replicas",1),"mappings",map("properties",map(
-            "id",map("type","long"),"name",map("type","text","analyzer","ik_max_word","search_analyzer","ik_smart"),"answer",map("type","text","analyzer","ik_max_word","search_analyzer","ik_smart"),"analysis",map("type","text","analyzer","ik_max_word","search_analyzer","ik_smart"),
-            "difficulty",map("type","integer"),"type",map("type","keyword"),"status",map("type","keyword"),"version",map("type","long"),"categoryIds",map("type","long"),"labelIds",map("type","long"),"updatedAt",map("type","date","format","strict_date_optional_time"))));}
+            "id",map("type","long"),"name",map("type","text","analyzer","ik_max_word","search_analyzer","ik_smart","fields",map("keyword",map("type","keyword","ignore_above",256))),"answer",map("type","text","analyzer","ik_max_word","search_analyzer","ik_smart"),"analysis",map("type","text","analyzer","ik_max_word","search_analyzer","ik_smart"),
+            "difficulty",map("type","integer"),"type",map("type","keyword"),"status",map("type","keyword"),"version",map("type","long"),"categoryIds",map("type","long"),"labelIds",map("type","long"),"createdAt",map("type","date","format","strict_date_optional_time"),"updatedAt",map("type","date","format","strict_date_optional_time"))));}
     private void createIndex(String index) { exchange("PUT", "/" + index,indexDefinition()); }
     @SuppressWarnings("unchecked") private long count(){return count(alias);} @SuppressWarnings("unchecked") private long count(String target){Map<String,Object> r=exchange("GET","/"+target+"/_count",null);return ((Number)r.get("count")).longValue();}
     @SuppressWarnings("unchecked") private Map<String,Object> exchange(String method,String path,Object body){RuntimeException last=null;int start=Math.floorMod(nodeCursor.getAndIncrement(),nodes.size());for(int i=0;i<nodes.size();i++){String node=nodes.get((start+i)%nodes.size());try{HttpHeaders h=new HttpHeaders();h.setContentType(MediaType.APPLICATION_JSON);ResponseEntity<Map> r=http.exchange(URI.create(node+path),HttpMethod.resolve(method),new HttpEntity<>(body,h),Map.class);return r.getBody()==null?Collections.emptyMap():r.getBody();}catch(RuntimeException e){last=e;}}throw last==null?new IllegalStateException("Elasticsearch 节点不可用"):last;}

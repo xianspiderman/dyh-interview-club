@@ -54,4 +54,4 @@ MySQL 永远是最终数据依据。Redis 可重建，Elasticsearch 可通过 My
 
 ## 部署模式边界
 
-`compose.yaml` 用于本地演示，组件可按需精简，不宣称生产高可用。`deploy/ha/compose-ha.yaml` 是生产型拓扑证据：Redis 一主两从和三 Sentinel、RocketMQ 双 NameServer 与同步主从/同步刷盘、Nacos 三节点以及 Elasticsearch 三节点。该参考在真实环境使用前必须接入持久卷、TLS、监控、备份和外部秘密管理，并初始化 Nacos 官方数据库 schema。
+`compose.yaml` 用于本地演示，组件可按需精简，不宣称生产高可用。`deploy/ha/compose-ha.yaml` 是生产型拓扑证据：Redis 一主两从和三 Sentinel、RocketMQ 双 NameServer 与同步主从/同步刷盘、自动初始化官方表结构并带 readiness 探针的 Nacos 三节点，以及 Elasticsearch 三节点。Gateway 与四个运行时服务通过 `SPRING_REDIS_SENTINEL_MASTER/NODES` 切换 Sentinel，单机演示仍使用 `REDIS_HOST/PORT`。该参考在真实环境使用前必须接入持久卷、TLS、监控、备份和外部秘密管理。

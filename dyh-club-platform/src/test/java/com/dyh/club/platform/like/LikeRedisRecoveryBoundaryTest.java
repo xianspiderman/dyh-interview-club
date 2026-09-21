@@ -29,6 +29,6 @@ class LikeRedisRecoveryBoundaryTest {
     }
     private static class CapturingRedis extends StringRedisTemplate {
         Object[] arguments;
-        @SuppressWarnings("unchecked") @Override public <T>T execute(RedisScript<T> script,List<String>keys,Object...args){if(args.length==8){arguments=args;long version=Long.parseLong(String.valueOf(args[7]));long count=Math.max(0,Long.parseLong(String.valueOf(args[6]))-1);return(T)Arrays.asList(1L,version,count);}return(T)Long.valueOf(1);}
+        @SuppressWarnings("unchecked") @Override public <T>T execute(RedisScript<T> script,List<String>keys,Object...args){if(args.length==8){arguments=args;long version=Long.parseLong(String.valueOf(args[7]));long count=Math.max(0,Long.parseLong(String.valueOf(args[6]))-1);return(T)Arrays.asList(1L,version,count,0L);}return(T)Long.valueOf(1);}
     }
 }
