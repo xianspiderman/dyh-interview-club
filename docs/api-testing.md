@@ -1,4 +1,4 @@
-# 核心 API 演示
+# 核心 API 调用与验证
 
 统一入口为 `http://localhost:5000`，响应统一包含 `code`、`message`、`data`、`traceId`。先登录并保存返回的 `tokenValue`，后续请求使用 `satoken` 请求头。
 

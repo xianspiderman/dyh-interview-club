@@ -52,6 +52,6 @@ Canal 只传题目 ID，消费者每批最多 500 个 ID，从 MySQL 批量读�
 
 MySQL 永远是最终数据依据。Redis 可重建，Elasticsearch 可通过 MySQL 全量重建加 Canal 增量重放恢复；RocketMQ 和 pending 用于缩短一致性窗口，不能绕开数据库唯一约束和条件更新。
 
-## 部署模式边界
+## 部署模式
 
-`compose.yaml` 用于本地演示，组件可按需精简，不宣称生产高可用。`deploy/ha/compose-ha.yaml` 是生产型拓扑证据：Redis 一主两从和三 Sentinel、RocketMQ 双 NameServer 与同步主从/同步刷盘、自动初始化官方表结构并带 readiness 探针的 Nacos 三节点，以及 Elasticsearch 三节点。Gateway 与四个运行时服务通过 `SPRING_REDIS_SENTINEL_MASTER/NODES` 切换 Sentinel，单机演示仍使用 `REDIS_HOST/PORT`。该参考在真实环境使用前必须接入持久卷、TLS、监控、备份和外部秘密管理。
+`compose.yaml` 提供单机开发部署，`deploy/ha/compose-ha.yaml` 提供生产型中间件高可用部署：Redis 一主两从和三 Sentinel、RocketMQ 双 NameServer 与同步主从/同步刷盘、自动初始化官方表结构并带 readiness 探针的 Nacos 三节点，以及 Elasticsearch 三节点。Gateway 与四个运行时服务通过 `SPRING_REDIS_SENTINEL_MASTER/NODES` 接入 Sentinel，单机部署使用 `REDIS_HOST/PORT`。生产环境通过持久卷、TLS、监控、备份和外部秘密管理完成数据保护与凭证治理。

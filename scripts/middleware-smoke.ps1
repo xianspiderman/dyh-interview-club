@@ -1,7 +1,7 @@
 param([switch]$Full)
 $ErrorActionPreference = 'Stop'
 docker info *> $null
-if ($LASTEXITCODE -ne 0) { throw 'Docker Engine 不可用，未执行真实中间件联调。' }
+if ($LASTEXITCODE -ne 0) { throw '无法连接 Docker Engine，请启动 Docker Desktop 后重试。' }
 if ($Full) {
   $env:ROCKETMQ_ENABLED='true'; $env:ELASTICSEARCH_ENABLED='true'; $env:CANAL_ENABLED='true';$env:NACOS_DISCOVERY_ENABLED='true';$env:NACOS_CONFIG_ENABLED='true'
   $env:CLUB_AUTH_URI='lb://club-auth-service';$env:CLUB_SUBJECT_URI='lb://club-subject-service';$env:CLUB_PRACTICE_URI='lb://club-practice-service';$env:CLUB_CIRCLE_URI='lb://club-circle-service'

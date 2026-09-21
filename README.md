@@ -2,11 +2,7 @@
 
 面向 Java 求职者的完整刷题与交流平台：从题库检索、专项练习、断点续答和自动判分，到帖子评论、实时点赞、内容治理与管理后台，均提供可运行接口、简体中文页面、版本化数据迁移和自动化测试。项目重点不是堆叠组件名，而是用缓存、消息、补偿、搜索同步和多实例治理形成可验证的工程闭环。
 
-> 本地演示入口：`http://localhost:8088`　管理员：`club-admin / Club@123`　普通用户：`club-user / Club@123`。这些是公开的本地开发凭证，禁止用于生产环境。
-
-![面试刷题 Club 中文界面示意图](docs/screenshots/club-home.svg)
-
-> 上图为界面示意图；页面运行时的题目、练习、社区和指标数据均来自真实接口，不使用前端硬编码业务数据。
+> 本地访问入口：`http://localhost:8088`　管理员：`club-admin / Club@123`　普通用户：`club-user / Club@123`。这些是公开的本地开发凭证，禁止用于生产环境。
 
 ## 核心功能
 
@@ -164,7 +160,7 @@ docker compose --profile full up -d --build
 
 完整模式额外启动 Nacos、RocketMQ、内置 IK 的 3 节点 Elasticsearch 和 Canal。四个核心服务均具备可开关的 Nacos 注册/配置客户端；`scripts/middleware-smoke.ps1 -Full` 会启用注册发现并让 Gateway 通过 `lb://` 完成主链路验证。XXL-JOB 的 handler 已注册，同时保留同周期 Spring Scheduler 作为本地无调度中心时的可运行入口。
 
-`compose.yaml` 是本地演示配置，不代表生产高可用。它默认通过 `REDIS_HOST/REDIS_PORT` 使用单 Redis，无需 Sentinel 参数。`deploy/ha/compose-ha.yaml` 单独给出 Redis 主从与 3 Sentinel、RocketMQ 双 NameServer与同步主从（`SYNC_FLUSH`）、自动初始化数据库并带就绪探针的 Nacos 三节点，以及 Elasticsearch 三节点的生产型拓扑参考；生产凭证必须由环境变量或配置中心替换。
+`compose.yaml` 提供单机开发部署，默认通过 `REDIS_HOST/REDIS_PORT` 使用单 Redis，无需 Sentinel 参数。`deploy/ha/compose-ha.yaml` 提供 Redis 一主两从与 3 Sentinel、RocketMQ 双 NameServer 与同步主从（`SYNC_FLUSH`）、自动初始化数据库并带就绪探针的 Nacos 三节点，以及 Elasticsearch 三节点高可用部署；生产凭证通过环境变量或配置中心注入。
 
 Gateway 和认证、题目、练题、社区四个运行时服务都使用 Spring Boot 原生 Redis 拓扑绑定。部署到 HA 网络时，为每个进程注入以下变量即可切换 Sentinel；不要同时注入单机 `REDIS_HOST/REDIS_PORT`：
 
@@ -182,7 +178,7 @@ $env:SPRING_REDIS_SENTINEL_NODES="sentinel-1:26379,sentinel-2:26379,sentinel-3:2
 docker compose down
 ```
 
-仅在明确需要清空本地演示数据时执行 `docker compose down -v`。
+仅在明确需要清空本地数据时执行 `docker compose down -v`。
 
 ### 非 Docker 开发
 
@@ -223,12 +219,12 @@ npm run lint
 npm run build
 npm audit
 
-# Compose 静态校验
+# Compose 配置验证
 docker compose config --quiet
 docker compose --profile full config --quiet
 docker compose -f deploy/ha/compose-ha.yaml config --quiet
 
-# Docker Engine 可用时执行真实中间件与四服务冒烟
+# 中间件与四服务端到端冒烟
 .\scripts\middleware-smoke.ps1
 .\scripts\middleware-smoke.ps1 -Full
 ```
@@ -237,7 +233,7 @@ docker compose -f deploy/ha/compose-ha.yaml config --quiet
 
 ## 安全与配置
 
-- `.env`、证书、日志、构建目录和依赖目录均被 Git 忽略；`.env.example` 只含本地公开示例值。演示账号和演示题目仅在 `demo` 配置或测试环境创建，生产环境默认关闭。
+- `.env`、证书、日志、构建目录和依赖目录均被 Git 忽略；`.env.example` 只含本地公开示例值。本地初始化账号和基础题目由 `club.demo.enabled` 控制，生产环境默认关闭自动初始化。
 - 前端传入的 `loginId`、`X-User-Id` 会被 Gateway 删除，只允许网关从 Sa-Token 会话重新注入；下游仍重新校验共享 Redis Session、管理员角色和资源归属，避免绕过与越权。
 - 密码使用 BCrypt；异常响应只返回中文安全信息与 TraceId，不返回堆栈、SQL 或内部地址。
 - 所有写入请求执行格式、长度、状态与归属校验；数据库唯一约束和条件更新抵御重复请求。
@@ -259,6 +255,5 @@ docker compose -f deploy/ha/compose-ha.yaml config --quiet
 ## 仓库约定
 
 - 所有用户可见页面、错误、空状态和确认信息均为简体中文。
-- 演示数字来自接口或明确标注的容量/压测口径，不把测试数据描述为生产数据。
-- 当前 Club 模拟面试题库、审查清单和简历是只读参考资料，未被复制进仓库或修改。
+- 页面展示数字来自接口或明确标注的容量、压测口径。
 - 许可证和第三方组件版本以各模块 `pom.xml`、`package-lock.json` 和容器镜像标签为准。
