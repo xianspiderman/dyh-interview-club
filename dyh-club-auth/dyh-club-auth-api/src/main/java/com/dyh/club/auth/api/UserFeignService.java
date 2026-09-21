@@ -12,7 +12,7 @@ import java.util.List;
  * 用户服务feign
  *
  */
-@FeignClient("dyh-club-auth-dev")
+@FeignClient(name="dyh-club-auth-dev", fallbackFactory=UserFeignFallbackFactory.class)
 public interface UserFeignService {
 
     @RequestMapping("/user/getUserInfo")

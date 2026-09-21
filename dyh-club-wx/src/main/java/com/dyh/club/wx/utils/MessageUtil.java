@@ -10,8 +10,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class MessageUtil {
+    private static final Logger log= LoggerFactory.getLogger(MessageUtil.class);
 
     /**
      * 解析微信发来的请求（XML）.
@@ -27,6 +30,9 @@ public class MessageUtil {
         try (InputStream inputStream = new ByteArrayInputStream(msg.getBytes(StandardCharsets.UTF_8.name()))) {
             // 读取输入流
             SAXReader reader = new SAXReader();
+            reader.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            reader.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            reader.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
             Document document = reader.read(inputStream);
             // 得到xml根元素
             Element root = document.getRootElement();
@@ -38,7 +44,7 @@ public class MessageUtil {
                 map.put(e.getName(), e.getText());
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            log.warn("微信回调 XML 解析失败",e);
         }
 
         return map;

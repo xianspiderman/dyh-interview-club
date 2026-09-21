@@ -31,3 +31,6 @@ bootstrap-local.yml
 *.bak
 *.swp
 .cache/
+node_modules/
+dist/
+.eslintcache

@@ -312,13 +312,12 @@ public class HttpUtils {
                 httpPost.setHeader(key, val);
             });
         }
-        try {
-            CloseableHttpResponse response = HttpUtils.getHttpclient().execute(httpPost);
+        try (CloseableHttpResponse response = HttpUtils.getHttpclient().execute(httpPost)) {
             if (response.getCode() == HttpStatus.SC_OK || response.getCode() == HttpStatus.SC_CREATED) {
                 result = getStreamAsString(response.getEntity().getContent(), "UTF-8");
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("HTTP POST 调用失败，url={}",url,e);
         }
         return result;
     }

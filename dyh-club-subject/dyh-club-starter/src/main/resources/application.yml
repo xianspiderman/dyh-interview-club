@@ -46,3 +46,15 @@ rocketmq:
   name-server: ${ROCKETMQ_NAME_SERVER:localhost:9876}
   producer:
     group: dyh-club-subject
+feign:
+  circuitbreaker:
+    enabled: true
+  client:
+    config:
+      default:
+        connectTimeout: 500
+        readTimeout: 1000
+resilience4j:
+  circuitbreaker:
+    configs:
+      default: {slidingWindowSize: 20, minimumNumberOfCalls: 10, failureRateThreshold: 50, waitDurationInOpenState: 10s, permittedNumberOfCallsInHalfOpenState: 5}
