@@ -1,39 +1,125 @@
+name: dyh-interview-club
 services:
   mysql:
-    image: mysql:8.0
+    image: mysql:8.0.39
     container_name: dyh-club-mysql
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-dyh_club}
       MYSQL_USER: ${MYSQL_USERNAME:-dyh_club}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-club-local-only}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root-local-only}
       TZ: Asia/Shanghai
-    ports:
-      - "${MYSQL_PORT:-3306}:3306"
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    ports: ["${MYSQL_PORT:-3306}:3306"]
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--server-id=1", "--log-bin=mysql-bin", "--binlog-format=ROW", "--binlog-row-image=FULL"]
     volumes:
       - dyh-club-mysql-data:/var/lib/mysql
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./db/demo-data.sql:/docker-entrypoint-initdb.d/02-demo-data.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-legacy-schema.sql:ro
+      - ./db/demo-data.sql:/docker-entrypoint-initdb.d/02-legacy-demo.sql:ro
+      - ./deploy/mysql/03-canal-user.sql:/docker-entrypoint-initdb.d/03-canal-user.sql:ro
+    healthcheck: {test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD --silent"], interval: 5s, timeout: 5s, retries: 30}
   redis:
-    image: redis:7-alpine
+    image: redis:7.2-alpine
     container_name: dyh-club-redis
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - dyh-club-redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
+    ports: ["${REDIS_PORT:-6379}:6379"]
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: ["dyh-club-redis-data:/data"]
+    healthcheck: {test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 30}
+  platform:
+    build: {context: ., dockerfile: dyh-club-platform/Dockerfile}
+    container_name: dyh-club-platform
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-dyh_club}
+      MYSQL_USERNAME: ${MYSQL_USERNAME:-dyh_club}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-club-local-only}
+      SPRING_PROFILES_ACTIVE: demo
+      CLUB_DEMO_ENABLED: "true"
+      REDIS_HOST: redis
+      ROCKETMQ_ENABLED: ${ROCKETMQ_ENABLED:-false}
+      ROCKETMQ_NAME_SERVER: namesrv:9876
+      ELASTICSEARCH_ENABLED: ${ELASTICSEARCH_ENABLED:-false}
+      ELASTICSEARCH_NODES: http://es01:9200,http://es02:9200,http://es03:9200
+      CANAL_ENABLED: ${CANAL_ENABLED:-false}
+      CANAL_HOST: canal
+      XXL_JOB_ENABLED: ${XXL_JOB_ENABLED:-false}
+      XXL_JOB_ADMIN_ADDRESSES: ${XXL_JOB_ADMIN_ADDRESSES:-http://host.docker.internal:8080/xxl-job-admin}
+      XXL_JOB_ACCESS_TOKEN: ${XXL_JOB_ACCESS_TOKEN:-}
+      XXL_JOB_EXECUTOR_PORT: 9999
+    ports: ["3020:3020", "${XXL_JOB_EXECUTOR_PORT:-9999}:9999"]
+    depends_on:
+      mysql: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck: {test: ["CMD-SHELL", "wget -qO- http://localhost:3020/actuator/health | grep -q UP"], interval: 10s, timeout: 5s, retries: 30}
+  gateway:
+    build: {context: ., dockerfile: dyh-club-gateway/Dockerfile}
+    container_name: dyh-club-gateway
+    environment:
+      CLUB_PLATFORM_URI: http://platform:3020
+      REDIS_HOST: redis
+      NACOS_CONFIG_ENABLED: ${NACOS_CONFIG_ENABLED:-false}
+      NACOS_DISCOVERY_ENABLED: ${NACOS_DISCOVERY_ENABLED:-false}
+      NACOS_SERVER_ADDR: nacos:8848
+    ports: ["5000:5000"]
+    depends_on:
+      platform: {condition: service_healthy}
+      redis: {condition: service_healthy}
+  web:
+    build: {context: dyh-club-web}
+    container_name: dyh-club-web
+    ports: ["8088:80"]
+    depends_on: [gateway]
+  nacos:
+    image: nacos/nacos-server:v2.4.0
+    profiles: ["full"]
+    environment: {MODE: standalone, NACOS_AUTH_ENABLE: "false"}
+    ports: ["8848:8848", "9848:9848"]
+  namesrv:
+    image: apache/rocketmq:4.9.4
+    profiles: ["full"]
+    command: sh mqnamesrv
+    ports: ["9876:9876"]
+  broker:
+    image: apache/rocketmq:4.9.4
+    profiles: ["full"]
+    environment: {NAMESRV_ADDR: namesrv:9876}
+    command: sh mqbroker -n namesrv:9876
+    ports: ["10909:10909", "10911:10911"]
+    depends_on: [namesrv]
+  es01:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.24
+    profiles: ["full"]
+    environment: {node.name: es01, cluster.name: club-search, discovery.seed_hosts: "es02,es03", cluster.initial_master_nodes: "es01,es02,es03", bootstrap.memory_lock: "true", xpack.security.enabled: "false", ES_JAVA_OPTS: "-Xms512m -Xmx512m"}
+    ulimits: {memlock: {soft: -1, hard: -1}}
+    volumes: ["dyh-club-es01:/usr/share/elasticsearch/data"]
+    ports: ["9200:9200"]
+  es02:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.24
+    profiles: ["full"]
+    environment: {node.name: es02, cluster.name: club-search, discovery.seed_hosts: "es01,es03", cluster.initial_master_nodes: "es01,es02,es03", bootstrap.memory_lock: "true", xpack.security.enabled: "false", ES_JAVA_OPTS: "-Xms512m -Xmx512m"}
+    ulimits: {memlock: {soft: -1, hard: -1}}
+    volumes: ["dyh-club-es02:/usr/share/elasticsearch/data"]
+  es03:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.24
+    profiles: ["full"]
+    environment: {node.name: es03, cluster.name: club-search, discovery.seed_hosts: "es01,es02", cluster.initial_master_nodes: "es01,es02,es03", bootstrap.memory_lock: "true", xpack.security.enabled: "false", ES_JAVA_OPTS: "-Xms512m -Xmx512m"}
+    ulimits: {memlock: {soft: -1, hard: -1}}
+    volumes: ["dyh-club-es03:/usr/share/elasticsearch/data"]
+  canal:
+    image: canal/canal-server:v1.1.7
+    profiles: ["full"]
+    environment:
+      canal.auto.scan: "false"
+      canal.destinations: example
+      canal.instance.master.address: mysql:3306
+      canal.instance.dbUsername: canal
+      canal.instance.dbPassword: canal-local-only
+      canal.instance.filter.regex: ${MYSQL_DATABASE:-dyh_club}\\.club_question.*
+    ports: ["11111:11111"]
+    depends_on:
+      mysql: {condition: service_healthy}
 volumes:
   dyh-club-mysql-data:
   dyh-club-redis-data:
+  dyh-club-es01:
+  dyh-club-es02:
+  dyh-club-es03:
