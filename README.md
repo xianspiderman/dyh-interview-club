@@ -1,147 +1,83 @@
 # 面试刷题 Club
 
-面向 Java 求职者的完整刷题与交流平台：从题库检索、专项练习、断点续答和自动判分，到帖子评论、实时点赞、内容治理与管理后台，均提供可运行接口、简体中文页面、版本化数据迁移和自动化测试。项目重点不是堆叠组件名，而是用缓存、消息、补偿、搜索同步和多实例治理形成可验证的工程闭环。
+一个面向 Java 学习者的刷题和交流项目，包含题库、专项练习、答题记录、社区讨论和后台管理。项目采用微服务架构，前后端都可以通过 Docker Compose 在本地启动。
 
-> 本地访问入口：`http://localhost:8088`　管理员：`club-admin / Club@123`　普通用户：`club-user / Club@123`。这些是公开的本地开发凭证，禁止用于生产环境。
+本地入口：`http://localhost:8088`
 
-## 核心功能
+- 管理员：`club-admin / Club@123`
+- 普通用户：`club-user / Club@123`
 
-1. 登录后在题库按名称搜索并查看 Elasticsearch 高亮；ES 不可用时自动进入受限 MySQL 名称查询降级。
-2. 生成专项练习，逐题保存答案，刷新后从“未完成练习”恢复，交卷后查看正确率和标签薄弱项；重复交卷不会重复判分。
-3. 发布帖子、一级评论和多级回复；首屏每条评论只预览 3 条回复，更多回复按页懒加载。
-4. 点赞或取消点赞；Redis Lua 原子更新实时状态与计数，RocketMQ 异步落库，XXL-JOB/内置调度补偿遗漏。
-5. 管理员维护题目、分类、标签、题型、帖子、评论和敏感词；词库热更新后，后台任务分批复检存量内容。
-6. 打开“技术面板”，查看来自真实接口的请求量、平均耗时、P95、错误率、JVM、线程池、连接池、Redis、Caffeine、待处理点赞、任务和搜索状态。
+以上账号只用于本地开发环境。
 
-## 架构
+## 主要功能
+
+- 题目分类、标签和题型管理，支持单选、多选、判断和简答题。
+- 按分类、标签和关键词查题，搜索结果支持排序和高亮。
+- 根据条件生成专项练习，自动保存答题进度，交卷后生成答题报告。
+- 圈子、帖子、评论和多级回复。
+- 题目点赞、取消点赞和点赞状态查询。
+- 敏感词维护、词库热更新和存量内容复检。
+- 中文管理后台和技术指标页面。
+
+## 技术栈
+
+| 部分 | 技术 |
+| --- | --- |
+| 前端 | Vue 3、TypeScript、Vite |
+| 网关 | Spring Cloud Gateway、Sa-Token |
+| 后端 | Spring Boot 2.4.2、Spring Cloud、OpenFeign |
+| 数据 | MySQL、Redis、Caffeine、Elasticsearch |
+| 消息与同步 | RocketMQ、Canal、XXL-JOB |
+| 服务治理 | Nacos、Resilience4j、Micrometer |
+| 工程化 | Flyway、Docker Compose、JUnit 5 |
+
+## 项目结构
+
+```text
+dyh-club-web/                 中文前端
+dyh-club-gateway/             API 网关
+dyh-club-runtime-services/    认证、题目、练题、社区四个运行时服务
+dyh-club-platform/            公共业务实现和数据库迁移
+dyh-club-lock-spring-boot-starter/
+                              Redis 分布式锁 Starter
+deploy/                       中间件和部署配置
+scripts/                      冒烟测试、压测和运维脚本
+docs/                         接口、架构和运维文档
+```
+
+前端请求统一经过 Gateway，再分别进入认证、题目、练题和社区服务。
 
 ```mermaid
 flowchart LR
-    Browser["Vue 3 中文前端"] --> Gateway["Spring Cloud Gateway<br/>鉴权上下文 + 两层限流"]
-    Gateway --> Auth["认证服务 :3021"]
-    Gateway --> Subject["题目服务 :3022"]
-    Gateway --> Practice["练题服务 :3023"]
-    Gateway --> Circle["社区服务 :3024"]
-    Gateway -. "注册发现 / 配置" .-> Nacos[(Nacos)]
-    Auth --> MySQL[(MySQL 8<br/>最终数据依据)]
-    Auth --> Redis[(Redis<br/>共享 Session)]
+    Web[Vue 3 前端] --> Gateway[Gateway]
+    Gateway --> Auth[认证服务]
+    Gateway --> Subject[题目服务]
+    Gateway --> Practice[练题服务]
+    Gateway --> Circle[社区服务]
+    Auth --> MySQL[(MySQL)]
     Subject --> MySQL
-    Subject --> Redis
-    Subject --> Caffeine["Caffeine<br/>单实例 L1"]
-    Subject --> RocketMQ["RocketMQ<br/>点赞实时异步持久化"]
-    RocketMQ --> Subject
-    Subject --> XXL["XXL-JOB Handler<br/>补偿 / 校验"]
-    Practice -->|"OpenFeign 500ms/1s + 熔断"| Subject
     Practice --> MySQL
     Circle --> MySQL
-    MySQL -->|binlog| Canal[Canal]
-    Canal --> Subject
-    Subject --> ES[(Elasticsearch 3 节点<br/>全文 / 排序 / 高亮)]
+    Auth --> Redis[(Redis)]
+    Subject --> Redis
+    Subject --> MQ[RocketMQ]
+    MySQL --> Canal[Canal]
+    Canal --> ES[(Elasticsearch)]
 ```
 
-实际展示链路由 Gateway 路由到认证、题目、练题和社区四个独立 Spring Boot 进程。`dyh-club-platform` 保存共享领域实现、迁移和快速 H2 集成测试，不作为 `/api/**` 的运行时总入口；`dyh-club-lock-spring-boot-starter` 被缓存重建和搜索校验的真实调用链使用。
+## 关键实现
 
-### 模块
+练习生成后会保存固定题单和答题进度，刷新页面可以继续作答。交卷时通过条件更新避免重复判分，不同题型由工厂和策略实现处理。
 
-| 模块 | 职责 |
-| --- | --- |
-| `dyh-club-web` | Vue 3 + TypeScript 中文 SPA，真实调用后端接口 |
-| `dyh-club-gateway` | 统一入口、Sa-Token 身份上下文、防伪造用户头、全局与用户/IP 两层限流 |
-| `dyh-club-runtime-services` | 四个可独立启动的核心服务；练题服务通过带内部凭证的 OpenFeign 接口调用题目服务 |
-| `dyh-club-platform` | 共享业务实现、Flyway 迁移、聚合/辅助启动器和 H2 快速集成测试；不承接 Gateway 全量路由 |
-| `dyh-club-lock-spring-boot-starter` | 属性绑定、条件装配、默认 Bean、AOP、Redis NX 加锁与 Lua 安全释放 |
-| `dyh-club-auth/subject/practice/circle/...` | 原有领域模块，保留历史实现；现场主链路使用 `dyh-club-runtime-services` |
-| `db` / `deploy` | 旧库兼容脚本、容器初始化和 Canal 复制账号 |
+点赞状态先在 Redis 中更新，再通过 RocketMQ 写回 MySQL。消息按状态版本处理，定时任务负责补偿未完成的记录。
 
-## 核心链路
+题目详情使用 Caffeine 和 Redis 缓存，数据修改后通过 Redis 通知各实例清理本地缓存。搜索由 Elasticsearch 提供，Canal 负责同步 MySQL 中的题目变化；Elasticsearch 不可用时会回退到基础名称查询。
 
-### 专项练习与交卷
+敏感词词库支持黑白名单和热更新，词库变化后会分批复检已有帖子和评论。
 
-```mermaid
-sequenceDiagram
-    actor U as 用户
-    participant W as 中文前端
-    participant G as Gateway
-    participant P as Practice Service
-    participant S as Subject Service
-    participant Q as 题型工厂/策略
-    participant D as MySQL
-    U->>W: 选择条件并生成练习
-    W->>G: POST /api/practices
-    G->>P: 校验 Session 并传递用户上下文
-    P->>D: 固化题单与总题数
-    loop 答题过程
-      W->>P: PUT /answers
-      P->>D: 保存答案和用时
-    end
-    W->>P: POST /submit
-    P->>D: 条件更新 IN_PROGRESS → SUBMITTED
-    alt 首次交卷
-      P->>S: OpenFeign 读取题目与正确答案
-      S->>Q: 按 RADIO/MULTIPLE/JUDGE 策略判分
-      P->>D: 保存明细与报告
-    else 重复交卷
-      P->>D: 直接读取既有报告
-    end
-    P-->>W: 全量分母正确率与标签统计
-```
+## 本地运行
 
-### 点赞最终一致性
-
-```mermaid
-sequenceDiagram
-    participant A as API
-    participant V as MySQL 版本分配器
-    participant R as Redis Lua
-    participant M as RocketMQ
-    participant D as MySQL
-    participant J as XXL-JOB / Scheduler
-    A->>V: 行锁分配跨实例单调 state_version
-    A->>R: 缺失时用 DB 状态初始化；仅接受更高版本
-    R-->>A: 返回 Redis 当前状态与版本
-    A->>M: businessKey 顺序发送，生产重试 2 次
-    M->>D: 唯一键 + state_version 条件更新
-    M->>R: 比较版本后删除 pending
-    J->>R: 每分钟扫描，单批 500
-    J->>D: 补偿遗漏；低/等版本拒绝且不误写或清理 pending
-```
-
-### 缓存与搜索
-
-- 题目详情：Caffeine 30 秒 → Redis `600 + [0,120]` 秒 → MySQL；不存在值缓存 120 秒。
-- 热点回源：Starter 分布式锁使用唯一持有者、5 秒租期和 Lua compare-and-delete；数据库条件更新、唯一约束和消息版本仍负责最终正确性。
-- 写操作：事务中记录缓存失效任务；提交后删除 Redis 并通过 Pub/Sub 通知所有实例清理本地缓存。失败任务由调度器重试，TTL 是最终兜底。
-- 搜索：应用轮询配置的全部 ES 节点；题目名称与答案使用 `ik_max_word/ik_smart`，名称另有 `keyword` 子字段，文档保存 `createdAt(date)`。相关性检索采用 `name^2/answer` 权重，同分时按题目 ID 倒序，且只高亮名称和答案。Canal 单批最多聚合 500 个题目 ID，批量回查并 Bulk 写入；逐项检查结果并只重试失败文档，全部成功后才提交 checkpoint/ack。每 10 分钟只校验近期变更。全量重建记录起点位置，分页写新索引、重放重建期间增量、校验数量并原子切换别名；切换与 Canal 写入共用 Redis 分布式互斥和进程内公平读写锁，避免并发修改、下架或删除被旧快照覆盖。
-- Elasticsearch 不可用时只开放前 5 页、每页最多 20 条的 MySQL 名称查询，并在响应中明确 `source=MYSQL_LIMITED` 与 `degraded=true`。
-
-## 数据模型
-
-| 领域 | 主要表 | 关键约束 |
-| --- | --- | --- |
-| 认证 | `club_user` | 用户名唯一、BCrypt 密码摘要、角色与状态 |
-| 题库 | `club_question`、`club_question_option`、`club_question_brief` | 题型策略、数据版本、题目与选项唯一键 |
-| 目录 | `club_category`、`club_label`、两张映射表 | 分类/标签筛选索引、组合唯一约束 |
-| 练习 | `club_practice`、`club_practice_question` | 用户归属、题单唯一、条件交卷与版本号 |
-| 社区 | `club_circle`、`club_post`、`club_comment` | 根评论/父评论索引、逻辑状态、计数维护 |
-| 点赞 | `club_question_like`、`club_like_version` | 状态唯一键；数据库行锁分配跨 Redis 重启/应用重启的单调版本 |
-| 治理 | `club_sensitive_word`、`club_content_recheck_task` | 黑白名单、词典版本、复检游标 |
-| 可靠性 | `club_cache_invalidation_task`、`club_job_run`、`club_search_checkpoint`、`club_search_change_log/rebuild` | 可恢复任务、最近执行证据、同步位置和可审计重建 |
-
-Flyway 迁移位于 `dyh-club-platform/src/main/resources/db/migration`。迁移只向前执行，不依赖手工删表。
-
-## 统一工程口径
-
-- 聚合查询专用线程池：核心 16、最大 32、队列 200、`CallerRunsPolicy`；分支超时 300 ms，总超时 500 ms。
-- Web 容器：最小线程 20、最大 200、等待队列 100；Hikari 最大连接 40、连接等待 2 秒。
-- Gateway 全局与用户/IP 两层均使用 Redis 令牌桶，且两层均取到令牌才放行：全局登录 20/s、搜索 200/s、交卷 30/s、点赞 100/s；访问者分别为登录 5/min（容量 5）、搜索 10/s（容量 20）、交卷 1/s（容量 2）、点赞 2/s（容量 4）。Redis 异常时搜索只读请求可用性优先，登录、交卷和点赞失败关闭。
-- RocketMQ：生产失败重试 2 次、消费最大重试 5 次、业务键定队列、消费线程上限 4；pending 超过 5000 条或最老记录超过 2 分钟触发面板告警，管理员受控恢复单批最多 100 条。
-- 搜索索引：1 个主分片、1 个副本，推荐 3 节点；同步目标 5 秒内，校验周期 10 分钟，批量恢复 500 条。
-- 评论：根评论每页 20 条、首屏回复预览 3 条、回复懒加载每页 20 条；敏感词复检每批 500 条。
-- 简历中的 `185 ms → 36 ms、P95 260 ms → 68 ms、错误率 <0.1%` 仅指分类与标签聚合接口在 4C8G、100 并发口径下的历史压测结果，不代表全系统提升 80%。复测脚本见 `scripts/load-test.ps1`。
-
-## 快速启动
-
-要求：Docker Desktop 24+（建议 6 GB 可用内存）。
+需要安装 Docker Desktop。第一次运行先复制环境变量示例：
 
 ```powershell
 Copy-Item .env.example .env
@@ -149,111 +85,69 @@ docker compose up -d --build mysql redis auth-service subject-service practice-s
 docker compose ps
 ```
 
-等待所有健康检查通过后访问 `http://localhost:8088`。基础模式使用 MySQL、Redis、Gateway、后端和前端；搜索会明确展示 MySQL 降级状态，点赞在 Redis 不可用时也会安全降级为数据库条件写入。
+容器健康后访问 `http://localhost:8088`。
 
-完整中间件环境：
+如果需要同时启动 Nacos、RocketMQ、Elasticsearch 和 Canal：
 
 ```powershell
-# 在 .env 中将 ROCKETMQ_ENABLED、ELASTICSEARCH_ENABLED、CANAL_ENABLED 设为 true
+# 在 .env 中开启 ROCKETMQ_ENABLED、ELASTICSEARCH_ENABLED 和 CANAL_ENABLED
 docker compose --profile full up -d --build
 ```
 
-完整模式额外启动 Nacos、RocketMQ、内置 IK 的 3 节点 Elasticsearch 和 Canal。四个核心服务均具备可开关的 Nacos 注册/配置客户端；`scripts/middleware-smoke.ps1 -Full` 会启用注册发现并让 Gateway 通过 `lb://` 完成主链路验证。XXL-JOB 的 handler 已注册，同时保留同周期 Spring Scheduler 作为本地无调度中心时的可运行入口。
-
-`compose.yaml` 提供单机开发部署，默认通过 `REDIS_HOST/REDIS_PORT` 使用单 Redis，无需 Sentinel 参数。`deploy/ha/compose-ha.yaml` 提供 Redis 一主两从与 3 Sentinel、RocketMQ 双 NameServer 与同步主从（`SYNC_FLUSH`）、自动初始化数据库并带就绪探针的 Nacos 三节点，以及 Elasticsearch 三节点高可用部署；生产凭证通过环境变量或配置中心注入。
-
-Gateway 和认证、题目、练题、社区四个运行时服务都使用 Spring Boot 原生 Redis 拓扑绑定。部署到 HA 网络时，为每个进程注入以下变量即可切换 Sentinel；不要同时注入单机 `REDIS_HOST/REDIS_PORT`：
-
-```powershell
-$env:SPRING_REDIS_SENTINEL_MASTER="clubmaster"
-$env:SPRING_REDIS_SENTINEL_NODES="sentinel-1:26379,sentinel-2:26379,sentinel-3:26379"
-# 有密码时另行从秘密管理系统注入 SPRING_REDIS_PASSWORD / SPRING_REDIS_SENTINEL_PASSWORD
-```
-
-可复制的变量清单位于 `deploy/ha/application-sentinel.env.example`；配置上下文测试分别验证 Gateway 与共享运行时配置确实创建 Sentinel-aware Lettuce 连接工厂。本地单机与 HA 拓扑的完整命令见 `deploy/ha/README.md`。
-
-停止服务不会删除数据：
+停止服务：
 
 ```powershell
 docker compose down
 ```
 
-仅在明确需要清空本地数据时执行 `docker compose down -v`。
+`docker compose down` 会保留数据卷；需要重新初始化本地数据时可以使用 `docker compose down -v`。
 
-### 非 Docker 开发
+本地 Compose 适合开发和演示。Redis Sentinel、RocketMQ 主从、Nacos 集群和 Elasticsearch 三节点配置放在 [deploy/ha](deploy/ha/README.md)。
+
+## 测试
+
+后端：
 
 ```powershell
-# 后端（分别在四个终端启动四个运行时模块）
-$env:CLUB_INTERNAL_TOKEN="club-local-internal-only" # 仅本地开发；生产必须替换
-mvn -pl dyh-club-runtime-services/club-auth-service,dyh-club-runtime-services/club-subject-service,dyh-club-runtime-services/club-practice-service,dyh-club-runtime-services/club-circle-service -am -DskipTests package
-java -jar dyh-club-runtime-services/club-auth-service/target/club-auth-service-1.0-SNAPSHOT.jar
-java -jar dyh-club-runtime-services/club-subject-service/target/club-subject-service-1.0-SNAPSHOT.jar
-java -jar dyh-club-runtime-services/club-practice-service/target/club-practice-service-1.0-SNAPSHOT.jar
-java -jar dyh-club-runtime-services/club-circle-service/target/club-circle-service-1.0-SNAPSHOT.jar
-
-# 网关（另一终端）
-mvn -f dyh-club-gateway/pom.xml spring-boot:run
-
-# 前端（另一终端）
-cd dyh-club-web
-npm ci
-npm run dev
+mvn clean test
 ```
 
-生产环境必须通过环境变量或配置中心提供数据库、Redis 和第三方凭证；仓库中的默认密码仅用于不可路由的本地容器网络。
-
-## 测试与验证
+前端：
 
 ```powershell
-# 全量 Maven reactor 编译与测试
-mvn clean test
-
-# 核心集成测试
-mvn -pl dyh-club-platform -am test
-
-# 前端检查
 cd dyh-club-web
 npm ci
 npm run typecheck
 npm run lint
 npm run build
 npm audit
+```
 
-# Compose 配置验证
+Compose 配置检查：
+
+```powershell
 docker compose config --quiet
 docker compose --profile full config --quiet
 docker compose -f deploy/ha/compose-ha.yaml config --quiet
+```
 
-# 中间件与四服务端到端冒烟
+Docker 服务可用时，可以运行完整冒烟脚本：
+
+```powershell
 .\scripts\middleware-smoke.ps1
 .\scripts\middleware-smoke.ps1 -Full
 ```
 
-全仓 40 个 Maven reactor 模块和 36 项自动测试覆盖 Flyway、四服务启动、Gateway 路由、注册/登录/退出与权限、题目 CRUD、题型策略、缓存对象隔离和失效任务、断点续答、条件交卷、评论预览/懒加载、点赞高版本恢复/并发分配/版本乱序、Redis 单机与 Sentinel 配置绑定、敏感词热更新、ES 集群/Mapping/查询结构/Bulk 边界与切换锁、搜索降级和真实面板。详细结果、证据与故障演练见 [工程验证记录](docs/verification.md)、[工程证据矩阵](docs/engineering-evidence.md) 和 [运维与故障演练](docs/operations.md)。
+当前测试包含基础业务、四个运行时服务、Gateway 路由、点赞版本处理、缓存、搜索同步和 Sentinel 配置等内容。
 
-## 安全与配置
+## 更多文档
 
-- `.env`、证书、日志、构建目录和依赖目录均被 Git 忽略；`.env.example` 只含本地公开示例值。本地初始化账号和基础题目由 `club.demo.enabled` 控制，生产环境默认关闭自动初始化。
-- 前端传入的 `loginId`、`X-User-Id` 会被 Gateway 删除，只允许网关从 Sa-Token 会话重新注入；下游仍重新校验共享 Redis Session、管理员角色和资源归属，避免绕过与越权。
-- 密码使用 BCrypt；异常响应只返回中文安全信息与 TraceId，不返回堆栈、SQL 或内部地址。
-- 所有写入请求执行格式、长度、状态与归属校验；数据库唯一约束和条件更新抵御重复请求。
-- Actuator 只开放健康、指标和 Prometheus；面板不返回凭证、完整连接地址或危险管理操作。
+- [接口调用示例](docs/api-testing.md)
+- [部署与故障处理](docs/operations.md)
+- [测试记录](docs/verification.md)
 
-## 常见故障
+## 配置说明
 
-| 现象 | 自动行为 | 排查入口 |
-| --- | --- | --- |
-| Redis 短时不可用 | 题目回源 MySQL；点赞降级条件写库；Session 新请求失败但不泄露数据 | 技术面板 Redis 状态、应用 TraceId |
-| Elasticsearch 不可用 | 前 5 页、每页 20 条的 MySQL 名称查询 | 响应 `degraded`、搜索状态与 checkpoint |
-| MQ 发送失败 | pending 保留，补偿任务再次落库 | pending 数量、`club_job_run`、积压阈值 |
-| 缓存失效发布失败 | 失效任务转 RETRY，后台重试，TTL 兜底 | `club_cache_invalidation_task` |
-| Canal 批次异常 | 不 ack 并 rollback；恢复后重放 | `club_search_checkpoint.last_error` |
-| 聚合子查询超时 | 单分支标记 `degraded`，不拖垮总接口 | 线程池队列、TraceId、请求 P95 |
-
-更多命令、恢复步骤、别名回退和多实例检查见 [docs/operations.md](docs/operations.md)。
-
-## 仓库约定
-
-- 所有用户可见页面、错误、空状态和确认信息均为简体中文。
-- 页面展示数字来自接口或明确标注的容量、压测口径。
-- 许可证和第三方组件版本以各模块 `pom.xml`、`package-lock.json` 和容器镜像标签为准。
+- `.env` 不提交到 Git，仓库只保留 `.env.example`。
+- 本地默认账号和密码仅供开发使用，其他环境请通过环境变量或配置中心提供配置。
+- 数据库结构由 Flyway 管理，迁移文件位于 `dyh-club-platform/src/main/resources/db/migration`。
